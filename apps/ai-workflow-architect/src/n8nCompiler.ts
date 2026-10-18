@@ -47,6 +47,14 @@ export class N8nCompiler {
     return this.request("workflows", { method: "POST", body: JSON.stringify(workflow) });
   }
 
+  async getWorkflowDetails(workflowId: string): Promise<{
+    id: string;
+    name: string;
+    nodes?: Array<{ name?: string; type?: string; parameters?: Record<string, unknown> }>;
+  }> {
+    return this.request(`workflows/${encodeURIComponent(workflowId)}`, { method: "GET" });
+  }
+
   async findByDeploymentMarker(marker: string): Promise<Array<{ id: string; name: string }>> {
     const suffix = `[architect:${marker}]`;
     const matches: Array<{ id: string; name: string }> = [];
