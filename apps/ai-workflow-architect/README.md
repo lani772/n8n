@@ -12,7 +12,9 @@ A TypeScript orchestration service alongside the n8n monorepo. It calls n8n thro
 
 Authentication expects an HS256 bearer JWT with issuer `ai-workflow-architect` and audience `ai-workflow-architect-api`, issued by a trusted identity service. This scaffold does not issue tokens or include account registration.
 
-After the interview, the API returns a `draftHash`. Deploy requires `{"approved":true,"draftHash":"<reviewed hash>" }`, binding approval to the exact reviewed requirements. A Redis lock prevents concurrent/repeated submissions. If a network failure occurs after n8n may have accepted the workflow, the lock is retained to avoid automatic duplicate creation; reconcile in n8n before recovery.
+After the interview, the API returns a `draftHash`. Deploy requires `{"approved":true,"draftHash":"<reviewed hash>" }`, binding approval to the exact reviewed requirements. A Redis lock prevents concurrent/repeated submissions. If deployment returns an error after the lock is acquired, the lock is deliberately retained because the service cannot always know whether n8n accepted the create request before the connection failed. This favors preventing duplicates over automatic retries.
+
+**Manual reconciliation after a failed deployment:** inspect the n8n UI/API for a workflow matching the reviewed name and the request time; compare its nodes and endpoint with the reviewed requirements; inspect the application `architect_workflows` table for the session and workflow ID; do not simply retry the same session while its lock exists. If n8n created the workflow but PostgreSQL did not record it, manually record/reconcile the metadata using an audited operator procedure before enabling retries. This scaffold does not yet provide an automated reconciliation endpoint or safe lock-release operation.
 
 ## Endpoints
 
