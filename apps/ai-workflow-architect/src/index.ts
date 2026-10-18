@@ -107,7 +107,8 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
 
     let workflowId: string | undefined;
     try {
-      const workflow = await compiler.deploy(requirements);
+      const marker = compiler.deploymentMarker(userId, sid.data);
+      const workflow = await compiler.deploy(requirements, marker);
       workflowId = workflow.id;
       await workflowRepository.recordCreated({ workflowId: workflow.id, userId, sessionId: sid.data, name: requirements.name, draftHash: state.draftHash, requirements });
       await workflowRepository.markDeploymentCreated(userId, sid.data, workflow.id);
