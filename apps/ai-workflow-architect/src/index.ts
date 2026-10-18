@@ -101,8 +101,16 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
       await redis.set(lockKey, `deployed:${workflow.id}`, "EX", config.INTERVIEW_TTL_SECONDS);
       res.status(201).json({ workflow, status: "created_inactive", draftHash: state.draftHash });
     } catch (error) {
-      // Retain the lock if n8n may already have accepted the workflow to avoid duplicate creation.
-      if (!created) await redis.del(lockKey);
+      // A failed deploy call may have timed out after n8n created the workflow.
+      // Keep the lock and label it for manual reconciliation; never auto-retry an
+      // operation whose remote outcome is uncertain.
+      if (!created) {
+        try {
+          await redis.set(lockKey, "reconciliation-required", "EX", config.INTERVIEW_TTL_SECONDS);
+        } catch (lockError) {
+          console.error("Could not mark deployment for reconciliation", lockError);
+        }
+      }
       throw error;
     }
   } catch (error) { next(error); }
