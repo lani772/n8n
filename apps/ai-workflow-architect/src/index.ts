@@ -65,6 +65,52 @@ app.post("/api/v1/chat/interview", auth, limiter, async (req, res, next) => {
     res.json({ sessionId, reply: decision.reply, complete: state.complete, requirements: state.requirements, draftHash: state.draftHash, nextStep: state.complete ? "Review this exact draft and approve using its draftHash before deployment." : "Answer the next question." });
   } catch (error) { next(error); }
 });
+app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, next) => {
+  try {
+    const sid = z.string().uuid().safeParse(req.params.sessionId);
+    if (!sid.success) { res.status(400).json({ error: "Invalid session ID" }); return; }
+    const userId = String(res.locals.userId);
+    const deployment = await workflowRepository.getDeployment(userId, sid.data);
+    if (!deployment) { res.status(404).json({ error: "Deployment record not found" }); return; }
+    if (deployment.status === "created_inactive" && deployment.workflow_id) {
+      res.json({ status: "created_inactive", workflowId: deployment.workflow_id, reconciled: false });
+      return;
+    }
+    const marker = compiler.deploymentMarker(userId, sid.data);
+    const matches = await compiler.findByDeploymentMarker(marker);
+    if (matches.length !== 1) {
+      res.status(409).json({
+        error: matches.length === 0
+          ? "No matching workflow found in the first 250 n8n workflows; deployment remains unresolved"
+          : "Multiple matching workflows found; manual review required",
+        status: deployment.status,
+      });
+      return;
+    }
+    const workflow = matches[0]!;
+    await workflowRepository.recordCreated({
+      workflowId: workflow.id,
+      userId,
+      sessionId: sid.data,
+      name: deployment.name,
+      draftHash: deployment.draft_hash.trim(),
+      requirements: deployment.requirements,
+    });
+    await workflowRepository.markDeploymentCreated(userId, sid.data, workflow.id);
+    const sessionKey = `interview:${userId}:${sid.data}`;
+    const rawSession = await redis.get(sessionKey);
+    if (rawSession) {
+      const parsedSession = SessionSchema.safeParse(JSON.parse(rawSession));
+      if (parsedSession.success) {
+        parsedSession.data.deployed = true;
+        await redis.set(sessionKey, JSON.stringify(parsedSession.data), "EX", config.INTERVIEW_TTL_SECONDS);
+      }
+    }
+    await redis.set(`deploy:${userId}:${sid.data}`, `deployed:${workflow.id}`, "EX", config.INTERVIEW_TTL_SECONDS);
+    res.json({ status: "created_inactive", workflowId: workflow.id, reconciled: true });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/v1/workflows", auth, limiter, async (_req, res, next) => {
   try {
     const records = await workflowRepository.listForUser(String(res.locals.userId));
