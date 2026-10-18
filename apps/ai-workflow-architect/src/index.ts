@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import { Redis } from "ioredis";
 import { MongoClient } from "mongodb";
 import pg from "pg";
-import { jwtVerify } from "jose";
+import { verifyAccessToken } from "./auth.js";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config.js";
@@ -20,7 +20,6 @@ const pool = new pg.Pool({ connectionString: config.postgresAppUrl, max: 10, con
 const interviewer = new InterviewService();
 const compiler = new N8nCompiler();
 const workflowRepository = new WorkflowRepository(pool);
-const jwtSecret = new TextEncoder().encode(config.JWT_SECRET);
 const SessionSchema = z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })).max(40), complete: z.boolean(), requirements: z.unknown().nullable(), draftHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), deployed: z.boolean().default(false) });
 type SessionState = z.infer<typeof SessionSchema>;
 const hashDraft = (value: unknown): string => createHash("sha256").update(JSON.stringify(value) ?? "undefined").digest("hex");
@@ -31,8 +30,7 @@ function auth(req: express.Request, res: express.Response, next: express.NextFun
     try {
       const match = req.header("authorization")?.match(/^Bearer\s+(.+)$/i);
       if (!match) { res.status(401).json({ error: "Authentication required" }); return; }
-      const { payload } = await jwtVerify(match[1]!, jwtSecret, { algorithms: ["HS256"], issuer: "ai-workflow-architect", audience: "ai-workflow-architect-api" });
-      if (typeof payload.sub !== "string" || !payload.sub) { res.status(401).json({ error: "Invalid identity claim" }); return; }
+      const payload = await verifyAccessToken(match[1]!, config.JWT_SECRET);
       res.locals.userId = payload.sub; next();
     } catch { res.status(401).json({ error: "Invalid or expired token" }); }
   })();
