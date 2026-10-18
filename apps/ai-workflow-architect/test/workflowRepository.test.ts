@@ -59,3 +59,73 @@ test("workflow repository creates an application-owned table and index", async (
   assert.match(statements[0]!, /UNIQUE \(user_id, session_id\)/);
   assert.match(statements[1]!, /CREATE INDEX IF NOT EXISTS architect_workflows_user_created_idx/);
 });
+
+
+test("deployment intent is persisted before remote deployment", async () => {
+  let call: { sql: string; values?: unknown[] } | undefined;
+  const fakeDb = {
+    async query(sql: string, values?: unknown[]) {
+      call = { sql, values };
+      return { rows: [], rowCount: 1 };
+    },
+  };
+  const repository = new WorkflowRepository(fakeDb as never);
+  await repository.reserveDeployment({
+    userId: "user-a",
+    sessionId: "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+    draftHash: "b".repeat(64),
+    name: "Example workflow",
+    requirements: { endpoint: "https://api.example.com" },
+  });
+
+  assert.match(call!.sql, /INSERT INTO architect_deployments/);
+  assert.match(call!.sql, /'pending'/);
+  assert.deepEqual(call!.values?.slice(0, 4), [
+    "user-a",
+    "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+    "b".repeat(64),
+    "Example workflow",
+  ]);
+});
+
+test("deployment state can be marked for reconciliation with the remote workflow ID", async () => {
+  let call: { sql: string; values?: unknown[] } | undefined;
+  const fakeDb = {
+    async query(sql: string, values?: unknown[]) {
+      call = { sql, values };
+      return { rows: [], rowCount: 1 };
+    },
+  };
+  const repository = new WorkflowRepository(fakeDb as never);
+  await repository.markDeploymentReconciliationRequired(
+    "user-a",
+    "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+    "database write failed",
+    "wf-123",
+  );
+
+  assert.match(call!.sql, /status = 'reconciliation_required'/);
+  assert.match(call!.sql, /workflow_id = COALESCE\(\$3, workflow_id\)/);
+  assert.deepEqual(call!.values, [
+    "user-a",
+    "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+    "wf-123",
+    "database write failed",
+  ]);
+});
+
+test("deployment schema records durable status and recovery metadata", async () => {
+  const statements: string[] = [];
+  const fakeDb = {
+    async query(sql: string) {
+      statements.push(sql);
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  await new WorkflowRepository(fakeDb as never).ensureSchema();
+
+  assert.match(statements[2]!, /CREATE TABLE IF NOT EXISTS architect_deployments/);
+  assert.match(statements[2]!, /'pending', 'created_inactive', 'reconciliation_required'/);
+  assert.match(statements[2]!, /PRIMARY KEY \(user_id, session_id\)/);
+  assert.match(statements[3]!, /architect_deployments_status_updated_idx/);
+});
