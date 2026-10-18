@@ -26,7 +26,7 @@ test("JWT verifier accepts a correctly signed access token and returns its subje
 });
 
 test("JWT verifier rejects a token signed with another secret", async () => {
-  await assert.rejects(async async () => verifyAccessToken(await token({ subject: "user-123" }), "another-test-secret-that-is-also-long-enough"));
+  await assert.rejects(async () => verifyAccessToken(await token({ subject: "user-123" }), "another-test-secret-that-is-also-long-enough"));
 });
 
 test("JWT verifier rejects the wrong issuer or audience", async () => {
