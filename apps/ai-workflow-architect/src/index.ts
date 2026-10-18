@@ -81,7 +81,7 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
     if (matches.length !== 1) {
       res.status(409).json({
         error: matches.length === 0
-          ? "No matching workflow found in the first 250 n8n workflows; deployment remains unresolved"
+          ? "No matching workflow found in the scanned n8n workflows; deployment remains unresolved"
           : "Multiple matching workflows found; manual review required",
         status: deployment.status,
       });
