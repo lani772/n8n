@@ -30,3 +30,19 @@ jobs:
           test -f docker/postgres-init.sh
           test -f docker/mongo-init.js
           docker compose config --quiet
+      - name: Start services and run integration smoke tests
+        run: |
+          set -eu
+          docker compose up --build --detach --wait --wait-timeout 360 || {
+            docker compose ps
+            docker compose logs --no-color --tail=150
+            exit 1
+          }
+          trap 'docker compose down --volumes --remove-orphans' EXIT
+          curl --fail --silent --show-error http://localhost:3000/health/live
+          curl --fail --silent --show-error http://localhost:3000/health/ready
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:3000/api/v1/workflows)"
+          test "$status" = "401"
+          table="$(docker compose exec -T postgres psql -U n8n -d architect -Atc "SELECT to_regclass('public.architect_workflows')")"
+          test "$table" = "architect_workflows"
+          echo "Integration smoke tests passed: API health, dependency readiness, auth gate, PostgreSQL schema."
