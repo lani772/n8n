@@ -45,4 +45,17 @@ jobs:
           test "$status" = "401"
           table="$(docker compose exec -T postgres psql -U n8n -d architect -Atc "SELECT to_regclass('public.architect_workflows')")"
           test "$table" = "architect_workflows"
-          echo "Integration smoke tests passed: API health, dependency readiness, auth gate, PostgreSQL schema."
+          docker compose exec -T postgres psql -U n8n -d architect -v ON_ERROR_STOP=1 -c "INSERT INTO architect_workflows (workflow_id,user_id,session_id,name,draft_hash,status,requirements) VALUES ('ci-user-a','ci-user-a','10000000-0000-4000-8000-000000000001','User A workflow',repeat('a',64),'created_inactive','{}'::jsonb),('ci-user-b','ci-user-b','10000000-0000-4000-8000-000000000002','User B workflow',repeat('b',64),'created_inactive','{}'::jsonb)"
+          JWT_SECRET="$(grep '^JWT_SECRET=' .env | cut -d= -f2-)" node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { SignJWT } from 'jose';
+          const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+          const token = await new SignJWT({}).setProtectedHeader({ alg: 'HS256' }).setIssuer('ai-workflow-architect').setAudience('ai-workflow-architect-api').setSubject('ci-user-a').setIssuedAt().setExpirationTime('2m').sign(secret);
+          const response = await fetch('http://localhost:3000/api/v1/workflows', { headers: { authorization: `Bearer ${token}` } });
+          assert.equal(response.status, 200, 'authenticated workflow listing should succeed');
+          const body = await response.json();
+          assert.deepEqual(body.workflows.map((workflow) => workflow.user_id), ['ci-user-a'], 'workflow listing must exclude other users');
+          assert.deepEqual(body.workflows.map((workflow) => workflow.workflow_id), ['ci-user-a']);
+          console.log('Authenticated tenant isolation passed.');
+          NODE
+          echo "Integration smoke tests passed: API health, dependency readiness, auth gate, PostgreSQL schema, tenant isolation."
