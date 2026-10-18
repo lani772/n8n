@@ -21,7 +21,7 @@ const compiler = new N8nCompiler();
 const jwtSecret = new TextEncoder().encode(config.JWT_SECRET);
 const SessionSchema = z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })).max(40), complete: z.boolean(), requirements: z.unknown().nullable(), draftHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), deployed: z.boolean().default(false) });
 type SessionState = z.infer<typeof SessionSchema>;
-const hashDraft = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const hashDraft = (value: unknown): string => createHash("sha256").update(JSON.stringify(value) ?? "undefined").digest("hex");
 app.disable("x-powered-by"); app.use(helmet()); app.use(express.json({ limit: "64kb" }));
 
 function auth(req: express.Request, res: express.Response, next: express.NextFunction): void {
