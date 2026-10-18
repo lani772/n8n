@@ -30,6 +30,6 @@ export const config = Object.freeze({
   ...e,
   customApiAllowedHosts: e.CUSTOM_API_ALLOWED_HOSTS.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean),
   redisUrl: `redis://:${encodeURIComponent(e.REDIS_PASSWORD)}@redis:6379`,
-  mongoUri: `mongodb://${encodeURIComponent(e.MONGO_ROOT_USER)}:${encodeURIComponent(e.MONGO_ROOT_PASSWORD)}@mongo:27017/${encodeURIComponent(e.MONGO_APP_DATABASE)}?authSource=admin`,
+  mongoUri: `mongodb://${encodeURIComponent(e.MONGO_APP_USER)}:${encodeURIComponent(e.MONGO_APP_PASSWORD)}@mongo:27017/${encodeURIComponent(e.MONGO_APP_DATABASE)}?authSource=${encodeURIComponent(e.MONGO_APP_DATABASE)}`,
   postgresAppUrl: `postgresql://${encodeURIComponent(e.POSTGRES_APP_USER)}:${encodeURIComponent(e.POSTGRES_APP_PASSWORD)}@postgres:5432/${encodeURIComponent(e.POSTGRES_APP_DATABASE)}`,
 });
