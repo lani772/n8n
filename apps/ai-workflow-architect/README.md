@@ -14,7 +14,7 @@ Authentication expects an HS256 bearer JWT with issuer `ai-workflow-architect` a
 
 After the interview, the API returns a `draftHash`. Deploy requires `{"approved":true,"draftHash":"<reviewed hash>" }`, binding approval to the exact reviewed requirements. A Redis lock prevents concurrent submissions, while PostgreSQL records a durable deployment intent in `architect_deployments` **before** the service calls n8n. The row is keyed by authenticated user and session, so it remains a retry guard after Redis expires. States are `pending`, `created_inactive`, and `reconciliation_required`; the record stores the reviewed draft hash, requirements snapshot, optional workflow ID, and a bounded error message. If deployment returns an error after the remote call begins, the service attempts to persist `reconciliation_required` and retains the Redis lock. If PostgreSQL is unavailable during recovery, the log records that the recovery-state update itself failed and the durable row may remain `pending`.
 
-**Manual reconciliation after a failed deployment:** inspect the n8n UI/API for a workflow matching the reviewed name and request time; compare its nodes and endpoint with the reviewed requirements; inspect both `architect_deployments` and `architect_workflows` for the session and workflow ID; do not simply retry the same session. A unique primary key on `architect_deployments(user_id, session_id)` blocks another reservation even after Redis expires. This scaffold does not yet provide an automated reconciliation endpoint or safe operator-controlled retry/release operation.
+**Manual reconciliation after a failed deployment:** inspect the n8n UI/API for a workflow matching the reviewed name and request time; compare its nodes and endpoint with the reviewed requirements; inspect both `architect_deployments` and `architect_workflows` for the session and workflow ID; do not simply retry the same session. A unique primary key on `architect_deployments(user_id, session_id)` blocks another reservation even after Redis expires. The reconciliation endpoint scans up to 5,000 n8n workflows using cursor pagination. It adopts a match only when exactly one workflow carries the stable marker derived from the authenticated user and session; zero matches or multiple matches remain unresolved for manual review. The scan limit and n8n API availability are operational constraints, not proof that a missing match was never created.
 
 ## Endpoints
 
@@ -22,6 +22,7 @@ After the interview, the API returns a `draftHash`. Deploy requires `{"approved"
 - `GET /health/ready`
 - `POST /api/v1/chat/interview`
 - `POST /api/v1/chat/:sessionId/deploy`
+- `POST /api/v1/chat/:sessionId/reconcile` — checks n8n for a workflow carrying the stable deployment marker and repairs local metadata only when exactly one match exists
 - `GET /api/v1/workflows` — list deployments belonging to the authenticated user
 
 ## Application data ownership
