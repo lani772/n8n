@@ -19,6 +19,7 @@ export function evaluateReconciliation(
   matches: readonly ReconciliationWorkflow[],
   requirements: Requirements | null,
   expectedEndpoint: string | null,
+  expectedWorkflowName?: string,
 ): ReconciliationDecision {
   if (matches.length === 0) return { ok: false, reason: "no_match" };
   if (matches.length > 1) return { ok: false, reason: "multiple_matches" };
@@ -27,6 +28,7 @@ export function evaluateReconciliation(
   const trigger = workflow.nodes?.find((node) => node.type === "n8n-nodes-base.webhook");
   const action = workflow.nodes?.find((node) => node.type === "n8n-nodes-base.httpRequest");
   if (
+    (expectedWorkflowName !== undefined && workflow.name !== expectedWorkflowName) ||
     !trigger ||
     !action ||
     action.parameters?.url !== expectedEndpoint ||
