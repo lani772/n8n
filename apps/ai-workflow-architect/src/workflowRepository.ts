@@ -141,10 +141,11 @@ export class WorkflowRepository {
   }
 
   async recordCreated(input: WorkflowRecordInput): Promise<void> {
-    await this.db.query(
+    const inserted = await this.db.query(
       `INSERT INTO architect_workflows
         (workflow_id, user_id, session_id, name, draft_hash, status, requirements)
-       VALUES ($1, $2, $3, $4, $5, 'created_inactive', $6::jsonb)`,
+       VALUES ($1, $2, $3, $4, $5, 'created_inactive', $6::jsonb)
+       ON CONFLICT (workflow_id) DO NOTHING`,
       [
         input.workflowId,
         input.userId,
@@ -154,6 +155,16 @@ export class WorkflowRepository {
         JSON.stringify(input.requirements),
       ],
     );
+    if (inserted.rowCount === 1) return;
+
+    const existing = await this.db.query(
+      `SELECT user_id, session_id, draft_hash FROM architect_workflows WHERE workflow_id = $1`,
+      [input.workflowId],
+    );
+    const row = existing.rows[0] as { user_id: string; session_id: string; draft_hash: string } | undefined;
+    if (!row || row.user_id !== input.userId || row.session_id !== input.sessionId || row.draft_hash.trim() !== input.draftHash) {
+      throw new Error("Workflow ID already belongs to different deployment metadata");
+    }
   }
 
   async listForUser(userId: string): Promise<WorkflowRecord[]> {
