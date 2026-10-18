@@ -48,11 +48,21 @@ export class N8nCompiler {
   }
 
   async findByDeploymentMarker(marker: string): Promise<Array<{ id: string; name: string }>> {
-    const result = await this.request<{ data?: Array<{ id: string; name: string }> }>(
-      "workflows?limit=250",
-      { method: "GET" },
-    );
     const suffix = `[architect:${marker}]`;
-    return (result.data ?? []).filter((workflow) => workflow.name.endsWith(suffix));
+    const matches: Array<{ id: string; name: string }> = [];
+    let cursor: string | undefined;
+    // Bound the scan so a large n8n instance cannot cause an unbounded API request.
+    for (let page = 0; page < 20; page += 1) {
+      const query = new URLSearchParams({ limit: "250" });
+      if (cursor) query.set("cursor", cursor);
+      const result = await this.request<{ data?: Array<{ id: string; name: string }>; nextCursor?: string }>(
+        `workflows?${query.toString()}`,
+        { method: "GET" },
+      );
+      matches.push(...(result.data ?? []).filter((workflow) => workflow.name.endsWith(suffix)));
+      if (matches.length > 1 || !result.nextCursor) return matches;
+      cursor = result.nextCursor;
+    }
+    throw new Error("Reconciliation scan reached its 5,000-workflow safety limit");
   }
 }
