@@ -1,7 +1,7 @@
 import express from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 import { MongoClient } from "mongodb";
 import pg from "pg";
 import { jwtVerify } from "jose";
@@ -24,7 +24,7 @@ app.disable("x-powered-by"); app.use(helmet()); app.use(express.json({ limit: "6
 function auth(req: express.Request, res: express.Response, next: express.NextFunction): void {
   void (async () => {
     try {
-      const match = req.header("authorization")?.match(/^Bearer\s+(.+)$/i);
+      const match = req.header("authorization")?.match(/^Bearer\\s+(.+)$/i);
       if (!match) { res.status(401).json({ error: "Authentication required" }); return; }
       const { payload } = await jwtVerify(match[1]!, jwtSecret, { algorithms: ["HS256"], issuer: "ai-workflow-architect", audience: "ai-workflow-architect-api" });
       if (typeof payload.sub !== "string" || !payload.sub) { res.status(401).json({ error: "Invalid identity claim" }); return; }
