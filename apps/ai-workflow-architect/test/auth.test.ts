@@ -26,16 +26,16 @@ test("JWT verifier accepts a correctly signed access token and returns its subje
 });
 
 test("JWT verifier rejects a token signed with another secret", async () => {
-  await assert.rejects(async () => verifyAccessToken(await token({ subject: "user-123" }), "another-test-secret-that-is-also-long-enough"));
+  await assert.rejects(async async () => verifyAccessToken(await token({ subject: "user-123" }), "another-test-secret-that-is-also-long-enough"));
 });
 
 test("JWT verifier rejects the wrong issuer or audience", async () => {
-  await assert.rejects(() => verifyAccessToken(await token({ subject: "user-123", issuer: "untrusted-issuer" }), secret));
-  await assert.rejects(() => verifyAccessToken(await token({ subject: "user-123", audience: "other-api" }), secret));
+  await assert.rejects(async () => verifyAccessToken(await token({ subject: "user-123", issuer: "untrusted-issuer" }), secret));
+  await assert.rejects(async () => verifyAccessToken(await token({ subject: "user-123", audience: "other-api" }), secret));
 });
 
 test("JWT verifier rejects missing subject, expired token, and disallowed algorithm", async () => {
-  await assert.rejects(() => verifyAccessToken(await token(), secret), /identity claim/);
-  await assert.rejects(() => verifyAccessToken(await token({ subject: "user-123", expired: true }), secret));
-  await assert.rejects(() => verifyAccessToken(await token({ subject: "user-123", algorithm: "HS384" }), secret));
+  await assert.rejects(async () => verifyAccessToken(await token(), secret), /identity claim/);
+  await assert.rejects(async () => verifyAccessToken(await token({ subject: "user-123", expired: true }), secret));
+  await assert.rejects(async () => verifyAccessToken(await token({ subject: "user-123", algorithm: "HS384" }), secret));
 });
