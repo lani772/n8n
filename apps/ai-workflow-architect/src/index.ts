@@ -13,6 +13,7 @@ import { N8nCompiler } from "./n8nCompiler.js";
 import { WorkflowRepository } from "./workflowRepository.js";
 import { RequirementsSchema } from "./types.js";
 import { hashDraft, isDraftApprovalValid } from "./draftApproval.js";
+import { evaluateReconciliation } from "./reconciliationPolicy.js";
 
 const app = express();
 const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 2, enableReadyCheck: true });
@@ -89,25 +90,27 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
     }
     const workflow = matches[0]!;
     const details = await compiler.getWorkflowDetails(workflow.id);
-    const requirements = RequirementsSchema.safeParse(deployment.requirements);
-    const trigger = details.nodes?.find((node) => node.type === "n8n-nodes-base.webhook");
-    const action = details.nodes?.find((node) => node.type === "n8n-nodes-base.httpRequest");
-    const expectedEndpoint = requirements.success ? compiler.validateEndpoint(requirements.data.endpoint).toString() : undefined;
-    if (
-      !requirements.success ||
-      details.name !== workflow.name ||
-      !trigger ||
-      !action ||
-      action.parameters?.url !== expectedEndpoint ||
-      action.parameters?.method !== requirements.data.method
-    ) {
+    const parsedRequirements = RequirementsSchema.safeParse(deployment.requirements);
+    const requirements = parsedRequirements.success ? parsedRequirements.data : null;
+    let expectedEndpoint: string | null = null;
+    try {
+      if (requirements) expectedEndpoint = compiler.validateEndpoint(requirements.endpoint).toString();
+    } catch {
+      expectedEndpoint = null;
+    }
+    const decision = evaluateReconciliation(
+      [{ ...details, name: workflow.name }],
+      requirements,
+      expectedEndpoint,
+    );
+    if (!decision.ok) {
       await workflowRepository.markDeploymentReconciliationRequired(
         userId,
         sid.data,
-        "Marked workflow did not match the approved trigger/action/endpoint; manual review required",
+        `Workflow reconciliation rejected: ${decision.reason}; manual review required`,
         workflow.id,
       );
-      res.status(409).json({ error: "Matching marker found, but workflow content did not match the approved draft; manual review required" });
+      res.status(409).json({ error: `Matching marker found, but reconciliation rejected it (${decision.reason}); manual review required` });
       return;
     }
     await workflowRepository.recordCreated({
