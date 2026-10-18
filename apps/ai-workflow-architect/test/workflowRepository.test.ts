@@ -42,7 +42,7 @@ test("workflow repository stores deployment values using SQL parameters", async 
   assert.match(calls[0]!.sql, /\$1, \$2, \$3, \$4, \$5/);
   assert.equal(calls[0]!.values?.[1], "user-a");
   assert.equal(calls[0]!.values?.[5], JSON.stringify(requirements));
-  assert.match(calls[0]!.sql, /ON CONFLICT \(workflow_id\) DO NOTHING/);
+  assert.doesNotMatch(calls[0]!.sql, /ON CONFLICT/);
 });
 
 test("workflow repository creates an application-owned table and index", async () => {
