@@ -90,18 +90,43 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
     const lockKey = `deploy:${userId}:${sid.data}`;
     const locked = await redis.set(lockKey, "in-progress", "EX", config.INTERVIEW_TTL_SECONDS, "NX");
     if (locked !== "OK") { res.status(409).json({ error: "Deployment is already in progress or was already submitted" }); return; }
+    const requirements = RequirementsSchema.parse({ ...state.requirements as Record<string, unknown>, approved: true });
     try {
-      const requirements = RequirementsSchema.parse({ ...state.requirements as Record<string, unknown>, approved: true });
+      await workflowRepository.reserveDeployment({
+        userId,
+        sessionId: sid.data,
+        draftHash: state.draftHash,
+        name: requirements.name,
+        requirements,
+      });
+    } catch (error) {
+      // The remote n8n call has not started, so releasing this short-lived lock is safe.
+      await redis.del(lockKey);
+      throw error;
+    }
+
+    let workflowId: string | undefined;
+    try {
       const workflow = await compiler.deploy(requirements);
+      workflowId = workflow.id;
       await workflowRepository.recordCreated({ workflowId: workflow.id, userId, sessionId: sid.data, name: requirements.name, draftHash: state.draftHash, requirements });
+      await workflowRepository.markDeploymentCreated(userId, sid.data, workflow.id);
       state.deployed = true;
       await redis.set(key, JSON.stringify(state), "EX", config.INTERVIEW_TTL_SECONDS);
       await redis.set(lockKey, `deployed:${workflow.id}`, "EX", config.INTERVIEW_TTL_SECONDS);
       res.status(201).json({ workflow, status: "created_inactive", draftHash: state.draftHash });
     } catch (error) {
-      // A failed deploy call may have timed out after n8n created the workflow.
-      // Keep the lock and label it for manual reconciliation; never auto-retry an
-      // operation whose remote outcome is uncertain.
+      // Persist uncertain outcomes so a Redis TTL cannot erase the only recovery signal.
+      try {
+        await workflowRepository.markDeploymentReconciliationRequired(
+          userId,
+          sid.data,
+          error instanceof Error ? error.message : "Unknown deployment failure",
+          workflowId,
+        );
+      } catch (repositoryError) {
+        console.error("Could not persist deployment reconciliation state", repositoryError);
+      }
       try {
         await redis.set(lockKey, "reconciliation-required", "EX", config.INTERVIEW_TTL_SECONDS);
       } catch (lockError) {
