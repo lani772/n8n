@@ -88,6 +88,28 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
       return;
     }
     const workflow = matches[0]!;
+    const details = await compiler.getWorkflowDetails(workflow.id);
+    const requirements = RequirementsSchema.safeParse(deployment.requirements);
+    const trigger = details.nodes?.find((node) => node.type === "n8n-nodes-base.webhook");
+    const action = details.nodes?.find((node) => node.type === "n8n-nodes-base.httpRequest");
+    const expectedEndpoint = requirements.success ? compiler.validateEndpoint(requirements.data.endpoint).toString() : undefined;
+    if (
+      !requirements.success ||
+      details.name !== workflow.name ||
+      !trigger ||
+      !action ||
+      action.parameters?.url !== expectedEndpoint ||
+      action.parameters?.method !== requirements.data.method
+    ) {
+      await workflowRepository.markDeploymentReconciliationRequired(
+        userId,
+        sid.data,
+        "Marked workflow did not match the approved trigger/action/endpoint; manual review required",
+        workflow.id,
+      );
+      res.status(409).json({ error: "Matching marker found, but workflow content did not match the approved draft; manual review required" });
+      return;
+    }
     await workflowRepository.recordCreated({
       workflowId: workflow.id,
       userId,
