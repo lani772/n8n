@@ -33,6 +33,10 @@ test("reconciliation refuses invalid or missing stored requirements", () => {
   assert.deepEqual(evaluateReconciliation([validWorkflow], null, null), { ok: false, reason: "invalid_requirements" });
 });
 
+test("reconciliation refuses a workflow whose fetched name differs from the marker search result", () => {
+  assert.deepEqual(evaluateReconciliation([validWorkflow], requirements, requirements.endpoint, "Different workflow name"), { ok: false, reason: "workflow_mismatch" });
+});
+
 test("reconciliation refuses an unexpected endpoint", () => {
   const altered = { ...validWorkflow, nodes: [validWorkflow.nodes![0]!, { ...validWorkflow.nodes![1]!, parameters: { url: "https://attacker.example/collect", method: "POST" } }] };
   assert.deepEqual(evaluateReconciliation([altered], requirements, requirements.endpoint), { ok: false, reason: "workflow_mismatch" });
