@@ -20,6 +20,8 @@ export interface WorkflowRecord {
   created_at: Date;
 }
 
+export type DeploymentStatus = "pending" | "created_inactive" | "reconciliation_required";
+
 type Queryable = Pick<Pool, "query">;
 
 /**
@@ -46,14 +48,76 @@ export class WorkflowRepository {
     await this.db.query(
       "CREATE INDEX IF NOT EXISTS architect_workflows_user_created_idx ON architect_workflows (user_id, created_at DESC)",
     );
+    await this.db.query(`
+      CREATE TABLE IF NOT EXISTS architect_deployments (
+        user_id text NOT NULL,
+        session_id uuid NOT NULL,
+        draft_hash char(64) NOT NULL,
+        status text NOT NULL CHECK (status IN ('pending', 'created_inactive', 'reconciliation_required')),
+        workflow_id text,
+        name text NOT NULL,
+        requirements jsonb NOT NULL,
+        last_error text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, session_id)
+      )
+    `);
+    await this.db.query(
+      "CREATE INDEX IF NOT EXISTS architect_deployments_status_updated_idx ON architect_deployments (status, updated_at DESC)",
+    );
+  }
+
+  /** Persist intent before calling n8n, preventing a Redis TTL from erasing the only retry guard. */
+  async reserveDeployment(input: {
+    userId: string;
+    sessionId: string;
+    draftHash: string;
+    name: string;
+    requirements: unknown;
+  }): Promise<void> {
+    await this.db.query(
+      `INSERT INTO architect_deployments
+        (user_id, session_id, draft_hash, status, name, requirements)
+       VALUES ($1, $2, $3, 'pending', $4, $5::jsonb)`,
+      [input.userId, input.sessionId, input.draftHash, input.name, JSON.stringify(input.requirements)],
+    );
+  }
+
+  async markDeploymentCreated(userId: string, sessionId: string, workflowId: string): Promise<void> {
+    const result = await this.db.query(
+      `UPDATE architect_deployments
+       SET status = 'created_inactive', workflow_id = $3, last_error = NULL, updated_at = now()
+       WHERE user_id = $1 AND session_id = $2 AND status IN ('pending', 'reconciliation_required')`,
+      [userId, sessionId, workflowId],
+    );
+    if (result.rowCount !== 1) {
+      throw new Error("Deployment record was not available to mark as created");
+    }
+  }
+
+  async markDeploymentReconciliationRequired(
+    userId: string,
+    sessionId: string,
+    errorMessage: string,
+    workflowId?: string,
+  ): Promise<void> {
+    await this.db.query(
+      `UPDATE architect_deployments
+       SET status = 'reconciliation_required',
+           workflow_id = COALESCE($3, workflow_id),
+           last_error = $4,
+           updated_at = now()
+       WHERE user_id = $1 AND session_id = $2 AND status <> 'created_inactive'`,
+      [userId, sessionId, workflowId ?? null, errorMessage.slice(0, 1000)],
+    );
   }
 
   async recordCreated(input: WorkflowRecordInput): Promise<void> {
     await this.db.query(
       `INSERT INTO architect_workflows
         (workflow_id, user_id, session_id, name, draft_hash, status, requirements)
-       VALUES ($1, $2, $3, $4, $5, 'created_inactive', $6::jsonb)
-       ON CONFLICT (workflow_id) DO NOTHING`,
+       VALUES ($1, $2, $3, $4, $5, 'created_inactive', $6::jsonb)`,
       [
         input.workflowId,
         input.userId,
