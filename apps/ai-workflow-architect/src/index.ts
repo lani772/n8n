@@ -90,11 +90,9 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
     const lockKey = `deploy:${userId}:${sid.data}`;
     const locked = await redis.set(lockKey, "in-progress", "EX", config.INTERVIEW_TTL_SECONDS, "NX");
     if (locked !== "OK") { res.status(409).json({ error: "Deployment is already in progress or was already submitted" }); return; }
-    let created = false;
     try {
       const requirements = RequirementsSchema.parse({ ...state.requirements as Record<string, unknown>, approved: true });
       const workflow = await compiler.deploy(requirements);
-      created = true;
       await workflowRepository.recordCreated({ workflowId: workflow.id, userId, sessionId: sid.data, name: requirements.name, draftHash: state.draftHash, requirements });
       state.deployed = true;
       await redis.set(key, JSON.stringify(state), "EX", config.INTERVIEW_TTL_SECONDS);
@@ -104,12 +102,10 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
       // A failed deploy call may have timed out after n8n created the workflow.
       // Keep the lock and label it for manual reconciliation; never auto-retry an
       // operation whose remote outcome is uncertain.
-      if (!created) {
-        try {
-          await redis.set(lockKey, "reconciliation-required", "EX", config.INTERVIEW_TTL_SECONDS);
-        } catch (lockError) {
-          console.error("Could not mark deployment for reconciliation", lockError);
-        }
+      try {
+        await redis.set(lockKey, "reconciliation-required", "EX", config.INTERVIEW_TTL_SECONDS);
+      } catch (lockError) {
+        console.error("Could not mark deployment for reconciliation", lockError);
       }
       throw error;
     }
