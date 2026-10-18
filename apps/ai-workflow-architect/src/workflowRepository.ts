@@ -84,6 +84,33 @@ export class WorkflowRepository {
     );
   }
 
+  async getDeployment(userId: string, sessionId: string): Promise<{
+    user_id: string;
+    session_id: string;
+    draft_hash: string;
+    status: DeploymentStatus;
+    workflow_id: string | null;
+    name: string;
+    requirements: unknown;
+    last_error: string | null;
+  } | undefined> {
+    const result = await this.db.query(
+      `SELECT user_id, session_id, draft_hash, status, workflow_id, name, requirements, last_error
+       FROM architect_deployments WHERE user_id = $1 AND session_id = $2 LIMIT 1`,
+      [userId, sessionId],
+    );
+    return result.rows[0] as {
+      user_id: string;
+      session_id: string;
+      draft_hash: string;
+      status: DeploymentStatus;
+      workflow_id: string | null;
+      name: string;
+      requirements: unknown;
+      last_error: string | null;
+    } | undefined;
+  }
+
   async markDeploymentCreated(userId: string, sessionId: string, workflowId: string): Promise<void> {
     const result = await this.db.query(
       `UPDATE architect_deployments
