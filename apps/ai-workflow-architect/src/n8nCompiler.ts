@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { validateEndpoint } from "./endpointPolicy.js";
 import { RequirementsSchema, type N8nWorkflowPayload, type Requirements } from "./types.js";
@@ -35,9 +35,24 @@ export class N8nCompiler {
     if (!response.ok) throw new Error(`n8n API returned HTTP ${response.status}`);
     return await response.json() as T;
   }
-  async deploy(input: unknown): Promise<{ id: string; name: string }> {
+  deploymentMarker(userId: string, sessionId: string): string {
+    return createHash("sha256").update(`${userId}:${sessionId}`).digest("hex").slice(0, 20);
+  }
+
+  async deploy(input: unknown, marker?: string): Promise<{ id: string; name: string }> {
     const req: Requirements = RequirementsSchema.parse(input);
     if (!req.approved) throw new Error("Explicit approval is required before deployment");
-    return this.request("workflows", { method: "POST", body: JSON.stringify(this.compile(req)) });
+    const workflow = this.compile(req);
+    if (marker) workflow.name = `${req.name} [architect:${marker}]`;
+    return this.request("workflows", { method: "POST", body: JSON.stringify(workflow) });
+  }
+
+  async findByDeploymentMarker(marker: string): Promise<Array<{ id: string; name: string }>> {
+    const result = await this.request<{ data?: Array<{ id: string; name: string }> }>(
+      "workflows?limit=250",
+      { method: "GET" },
+    );
+    const suffix = `[architect:${marker}]`;
+    return (result.data ?? []).filter((workflow) => workflow.name.endsWith(suffix));
   }
 }
