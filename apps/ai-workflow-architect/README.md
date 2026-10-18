@@ -20,6 +20,14 @@ After the interview, the API returns a `draftHash`. Deploy requires `{"approved"
 - `GET /health/ready`
 - `POST /api/v1/chat/interview`
 - `POST /api/v1/chat/:sessionId/deploy`
+- `GET /api/v1/workflows` — list deployments belonging to the authenticated user
+
+## Application data ownership
+
+- PostgreSQL stores deployment metadata in `architect_workflows`, including the authenticated user ID, interview session ID, reviewed draft hash, requirements snapshot, n8n workflow ID, and creation timestamp.
+- `GET /api/v1/workflows` filters by the verified JWT subject; clients cannot provide a different user ID to change the scope.
+- n8n remains the source of truth for workflow execution state. The application table is a metadata index, not a replacement for n8n execution records.
+- The service creates the application table and index at startup using the restricted application database role. For production, move this DDL into versioned migrations.
 
 ## Safety and limitations
 
