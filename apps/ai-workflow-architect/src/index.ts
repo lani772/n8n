@@ -5,13 +5,14 @@ import { Redis } from "ioredis";
 import { MongoClient } from "mongodb";
 import pg from "pg";
 import { verifyAccessToken } from "./auth.js";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config.js";
 import { InterviewService, type ChatMessage } from "./interview.js";
 import { N8nCompiler } from "./n8nCompiler.js";
 import { WorkflowRepository } from "./workflowRepository.js";
 import { RequirementsSchema } from "./types.js";
+import { hashDraft, isDraftApprovalValid } from "./draftApproval.js";
 
 const app = express();
 const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 2, enableReadyCheck: true });
@@ -22,7 +23,6 @@ const compiler = new N8nCompiler();
 const workflowRepository = new WorkflowRepository(pool);
 const SessionSchema = z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })).max(40), complete: z.boolean(), requirements: z.unknown().nullable(), draftHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), deployed: z.boolean().default(false) });
 type SessionState = z.infer<typeof SessionSchema>;
-const hashDraft = (value: unknown): string => createHash("sha256").update(JSON.stringify(value) ?? "undefined").digest("hex");
 app.disable("x-powered-by"); app.use(helmet()); app.use(express.json({ limit: "64kb" }));
 
 function auth(req: express.Request, res: express.Response, next: express.NextFunction): void {
@@ -86,7 +86,7 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
     const state = parsed.data;
     if (!state.complete || !state.requirements || !state.draftHash) { res.status(409).json({ error: "Interview is not complete" }); return; }
     if (state.deployed) { res.status(409).json({ error: "This approved draft has already been deployed" }); return; }
-    if (approval.data.draftHash !== state.draftHash || hashDraft(state.requirements) !== state.draftHash) { res.status(409).json({ error: "Draft changed; review and approve the current draft again" }); return; }
+    if (!isDraftApprovalValid(state.requirements, state.draftHash, approval.data.draftHash)) { res.status(409).json({ error: "Draft changed; review and approve the current draft again" }); return; }
     const lockKey = `deploy:${userId}:${sid.data}`;
     const locked = await redis.set(lockKey, "in-progress", "EX", config.INTERVIEW_TTL_SECONDS, "NX");
     if (locked !== "OK") { res.status(409).json({ error: "Deployment is already in progress or was already submitted" }); return; }
