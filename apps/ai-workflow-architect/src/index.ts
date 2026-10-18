@@ -10,6 +10,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { InterviewService, type ChatMessage } from "./interview.js";
 import { N8nCompiler } from "./n8nCompiler.js";
+import { WorkflowRepository } from "./workflowRepository.js";
 import { RequirementsSchema } from "./types.js";
 
 const app = express();
@@ -18,6 +19,7 @@ const mongo = new MongoClient(config.mongoUri);
 const pool = new pg.Pool({ connectionString: config.postgresAppUrl, max: 10, connectionTimeoutMillis: 5000 });
 const interviewer = new InterviewService();
 const compiler = new N8nCompiler();
+const workflowRepository = new WorkflowRepository(pool);
 const jwtSecret = new TextEncoder().encode(config.JWT_SECRET);
 const SessionSchema = z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })).max(40), complete: z.boolean(), requirements: z.unknown().nullable(), draftHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), deployed: z.boolean().default(false) });
 type SessionState = z.infer<typeof SessionSchema>;
@@ -65,6 +67,12 @@ app.post("/api/v1/chat/interview", auth, limiter, async (req, res, next) => {
     res.json({ sessionId, reply: decision.reply, complete: state.complete, requirements: state.requirements, draftHash: state.draftHash, nextStep: state.complete ? "Review this exact draft and approve using its draftHash before deployment." : "Answer the next question." });
   } catch (error) { next(error); }
 });
+app.get("/api/v1/workflows", auth, limiter, async (_req, res, next) => {
+  try {
+    const records = await workflowRepository.listForUser(String(res.locals.userId));
+    res.json({ workflows: records });
+  } catch (error) { next(error); }
+});
 app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next) => {
   try {
     const sid = z.string().uuid().safeParse(req.params.sessionId);
@@ -89,6 +97,7 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
       const requirements = RequirementsSchema.parse({ ...state.requirements as Record<string, unknown>, approved: true });
       const workflow = await compiler.deploy(requirements);
       created = true;
+      await workflowRepository.recordCreated({ workflowId: workflow.id, userId, sessionId: sid.data, name: requirements.name, draftHash: state.draftHash, requirements });
       state.deployed = true;
       await redis.set(key, JSON.stringify(state), "EX", config.INTERVIEW_TTL_SECONDS);
       await redis.set(lockKey, `deployed:${workflow.id}`, "EX", config.INTERVIEW_TTL_SECONDS);
@@ -106,6 +115,7 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 });
 async function main(): Promise<void> {
   await Promise.all([redis.ping(), mongo.connect(), pool.query("SELECT 1")]);
+  await workflowRepository.ensureSchema();
   const server = app.listen(config.PORT, "0.0.0.0", () => console.info(`AI Workflow Architect listening on ${config.PORT}`));
   const shutdown = () => server.close(() => { void Promise.allSettled([redis.quit(), mongo.close(), pool.end()]).then(() => process.exit(0)); });
   process.once("SIGTERM", shutdown); process.once("SIGINT", shutdown);
