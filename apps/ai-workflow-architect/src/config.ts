@@ -1,23 +1,17 @@
 import "dotenv/config";
 import { z } from "zod";
-
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  OPENAI_API_KEY: z.string().min(1),
-  OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
-  JWT_SECRET: z.string().min(32),
-  N8N_BASE_URL: z.string().url(),
-  N8N_API_KEY: z.string().min(1),
+  OPENAI_API_KEY: z.string().min(1), OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
+  JWT_SECRET: z.string().min(32), N8N_BASE_URL: z.string().url(), N8N_API_KEY: z.string().min(1),
   CUSTOM_API_ALLOWED_HOSTS: z.string().default(""),
   INTERVIEW_TTL_SECONDS: z.coerce.number().int().min(60).default(3600),
   MAX_CHAT_MESSAGE_LENGTH: z.coerce.number().int().min(1).max(20000).default(8000),
   POSTGRES_USER: z.string().min(1), POSTGRES_PASSWORD: z.string().min(1),
-  POSTGRES_APP_DATABASE: z.string().default("architect"),
-  POSTGRES_APP_USER: z.string().min(1), POSTGRES_APP_PASSWORD: z.string().min(1),
+  POSTGRES_APP_DATABASE: z.string().default("architect"), POSTGRES_APP_USER: z.string().min(1), POSTGRES_APP_PASSWORD: z.string().min(1),
   MONGO_ROOT_USER: z.string().min(1), MONGO_ROOT_PASSWORD: z.string().min(1),
-  MONGO_APP_DATABASE: z.string().default("architect"),
-  MONGO_APP_USER: z.string().min(1), MONGO_APP_PASSWORD: z.string().min(1),
+  MONGO_APP_DATABASE: z.string().default("architect"), MONGO_APP_USER: z.string().min(1), MONGO_APP_PASSWORD: z.string().min(1),
   REDIS_PASSWORD: z.string().min(1), N8N_ENCRYPTION_KEY: z.string().min(32),
 });
 const parsed = schema.safeParse(process.env);

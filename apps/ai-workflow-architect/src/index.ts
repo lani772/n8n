@@ -5,7 +5,7 @@ import { Redis } from "ioredis";
 import { MongoClient } from "mongodb";
 import pg from "pg";
 import { jwtVerify } from "jose";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config.js";
 import { InterviewService, type ChatMessage } from "./interview.js";
@@ -19,6 +19,9 @@ const pool = new pg.Pool({ connectionString: config.postgresAppUrl, max: 10, con
 const interviewer = new InterviewService();
 const compiler = new N8nCompiler();
 const jwtSecret = new TextEncoder().encode(config.JWT_SECRET);
+const SessionSchema = z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })).max(40), complete: z.boolean(), requirements: z.unknown().nullable(), draftHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), deployed: z.boolean().default(false) });
+type SessionState = z.infer<typeof SessionSchema>;
+const hashDraft = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 app.disable("x-powered-by"); app.use(helmet()); app.use(express.json({ limit: "64kb" }));
 
 function auth(req: express.Request, res: express.Response, next: express.NextFunction): void {
@@ -46,35 +49,55 @@ app.post("/api/v1/chat/interview", auth, limiter, async (req, res, next) => {
     const sessionId = body.data.sessionId ?? randomUUID();
     const key = `interview:${userId}:${sessionId}`;
     const raw = await redis.get(key);
-    const state: { messages: ChatMessage[]; complete: boolean; requirements: unknown | null } = raw ? JSON.parse(raw) as { messages: ChatMessage[]; complete: boolean; requirements: unknown | null } : { messages: [], complete: false, requirements: null };
-    if (state.complete) { res.status(409).json({ error: "Interview complete", sessionId, requirements: state.requirements }); return; }
+    const parsed = raw ? SessionSchema.safeParse(JSON.parse(raw)) : { success: true as const, data: { messages: [], complete: false, requirements: null, deployed: false } as SessionState };
+    if (!parsed.success) { res.status(500).json({ error: "Stored interview state is invalid" }); return; }
+    const state = parsed.data;
+    if (state.complete) { res.status(409).json({ error: "Interview complete", sessionId, requirements: state.requirements, draftHash: state.draftHash }); return; }
     const decision = await interviewer.nextTurn(state.messages, body.data.message);
     state.messages.push({ role: "user", content: body.data.message }, { role: "assistant", content: decision.reply });
     state.messages = state.messages.slice(-40);
     if (decision.complete && decision.requirements) {
       const candidate = { ...decision.requirements, approved: false };
       const valid = RequirementsSchema.safeParse(candidate);
-      if (valid.success) { state.complete = true; state.requirements = valid.data; }
+      if (valid.success) { state.complete = true; state.requirements = valid.data; state.draftHash = hashDraft(valid.data); }
     }
     await redis.set(key, JSON.stringify(state), "EX", config.INTERVIEW_TTL_SECONDS);
-    res.json({ sessionId, reply: decision.reply, complete: state.complete, requirements: state.requirements, nextStep: state.complete ? "Review and approve before deployment." : "Answer the next question." });
+    res.json({ sessionId, reply: decision.reply, complete: state.complete, requirements: state.requirements, draftHash: state.draftHash, nextStep: state.complete ? "Review this exact draft and approve using its draftHash before deployment." : "Answer the next question." });
   } catch (error) { next(error); }
 });
 app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next) => {
   try {
     const sid = z.string().uuid().safeParse(req.params.sessionId);
     if (!sid.success) { res.status(400).json({ error: "Invalid session ID" }); return; }
-    const approval = z.object({ approved: z.literal(true) }).safeParse(req.body);
-    if (!approval.success) { res.status(400).json({ error: "Explicit approval required" }); return; }
+    const approval = z.object({ approved: z.literal(true), draftHash: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(req.body);
+    if (!approval.success) { res.status(400).json({ error: "Explicit approval and the reviewed draftHash are required" }); return; }
     const userId = String(res.locals.userId);
     const key = `interview:${userId}:${sid.data}`;
     const raw = await redis.get(key);
     if (!raw) { res.status(404).json({ error: "Interview not found or expired" }); return; }
-    const state = JSON.parse(raw) as { complete: boolean; requirements: unknown };
-    if (!state.complete || !state.requirements) { res.status(409).json({ error: "Interview is not complete" }); return; }
-    const requirements = RequirementsSchema.parse({ ...state.requirements as Record<string, unknown>, approved: true });
-    const workflow = await compiler.deploy(requirements);
-    res.status(201).json({ workflow, status: "created_inactive" });
+    const parsed = SessionSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success) { res.status(500).json({ error: "Stored interview state is invalid" }); return; }
+    const state = parsed.data;
+    if (!state.complete || !state.requirements || !state.draftHash) { res.status(409).json({ error: "Interview is not complete" }); return; }
+    if (state.deployed) { res.status(409).json({ error: "This approved draft has already been deployed" }); return; }
+    if (approval.data.draftHash !== state.draftHash || hashDraft(state.requirements) !== state.draftHash) { res.status(409).json({ error: "Draft changed; review and approve the current draft again" }); return; }
+    const lockKey = `deploy:${userId}:${sid.data}`;
+    const locked = await redis.set(lockKey, "in-progress", "EX", config.INTERVIEW_TTL_SECONDS, "NX");
+    if (locked !== "OK") { res.status(409).json({ error: "Deployment is already in progress or was already submitted" }); return; }
+    let created = false;
+    try {
+      const requirements = RequirementsSchema.parse({ ...state.requirements as Record<string, unknown>, approved: true });
+      const workflow = await compiler.deploy(requirements);
+      created = true;
+      state.deployed = true;
+      await redis.set(key, JSON.stringify(state), "EX", config.INTERVIEW_TTL_SECONDS);
+      await redis.set(lockKey, `deployed:${workflow.id}`, "EX", config.INTERVIEW_TTL_SECONDS);
+      res.status(201).json({ workflow, status: "created_inactive", draftHash: state.draftHash });
+    } catch (error) {
+      // Retain the lock if n8n may already have accepted the workflow to avoid duplicate creation.
+      if (!created) await redis.del(lockKey);
+      throw error;
+    }
   } catch (error) { next(error); }
 });
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

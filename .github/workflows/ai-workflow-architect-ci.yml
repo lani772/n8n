@@ -1,0 +1,26 @@
+name: AI Workflow Architect CI
+on:
+  push:
+    branches: [ai-workflow-architect]
+    paths:
+      - 'apps/ai-workflow-architect/**'
+      - '.github/workflows/ai-workflow-architect-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/ai-workflow-architect/**'
+      - '.github/workflows/ai-workflow-architect-ci.yml'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/ai-workflow-architect
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

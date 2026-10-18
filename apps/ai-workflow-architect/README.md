@@ -2,53 +2,34 @@
 
 A TypeScript orchestration service alongside the n8n monorepo. It calls n8n through its public REST API and does not replace or patch n8n's execution engine.
 
-## Repository placement
-
-This project lives under `apps/ai-workflow-architect/` to keep the existing n8n source tree and root workspace configuration unchanged. The target repository is the user's fork `lani772/n8n`; the upstream `n8n-io/n8n` repository is not modified.
-
-## Prerequisites
-
-- Docker Engine and Docker Compose v2
-- Node.js 24+ and npm 10+ for local development
-- An OpenAI API key
-
 ## Quick start
 
-1. `cd apps/ai-workflow-architect`
-2. Copy `.env.example` to `.env` and replace every placeholder with a strong secret.
+1. Change to `apps/ai-workflow-architect/`.
+2. Copy `.env.example` to `.env` and replace placeholders with strong secrets.
 3. Run `docker compose up -d --build`.
-4. Complete initial n8n owner setup at `http://localhost:5678`, create a public API key, then add it to `.env` as `N8N_API_KEY` and restart the API: `docker compose up -d --build api`.
-5. `curl http://localhost:3000/health/ready`
+4. Complete initial n8n owner setup at `http://localhost:5678`, create an API key under Settings > n8n API, set `N8N_API_KEY` in `.env`, and restart the API with `docker compose up -d --build api`.
+5. Check `curl http://localhost:3000/health/ready`.
 
-For local development outside Docker: `npm install`, `npm run typecheck`, `npm test`, `npm run dev`. Set the service URLs to localhost in your local `.env` when not running inside Compose.
+Authentication expects an HS256 bearer JWT with issuer `ai-workflow-architect` and audience `ai-workflow-architect-api`, issued by a trusted identity service. This scaffold does not issue tokens or include account registration.
 
-## API
+After the interview, the API returns a `draftHash`. Deploy requires `{"approved":true,"draftHash":"<reviewed hash>" }`, binding approval to the exact reviewed requirements. A Redis lock prevents concurrent/repeated submissions. If a network failure occurs after n8n may have accepted the workflow, the lock is retained to avoid automatic duplicate creation; reconcile in n8n before recovery.
 
-- `GET /health/live`: process liveness
-- `GET /health/ready`: dependency readiness
-- `POST /api/v1/chat/interview`: authenticated multi-turn interview
-- `POST /api/v1/chat/:sessionId/deploy`: create an approved workflow as an inactive draft
+## Endpoints
 
-Authentication expects an HS256 bearer JWT with issuer and audience `ai-workflow-architect`. The JWT signing secret must be shared only with a trusted identity service. This initial scaffold does not include account registration or token issuance.
+- `GET /health/live`
+- `GET /health/ready`
+- `POST /api/v1/chat/interview`
+- `POST /api/v1/chat/:sessionId/deploy`
 
-Example request (replace `$TOKEN` with a valid JWT):
+## Safety and limitations
 
-```sh
-curl -X POST http://localhost:3000/api/v1/chat/interview \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"When a webhook receives an order, send it to https://api.example.com/orders"}'
-```
+- Workflows are created inactive; activation is not exposed.
+- Endpoint policy requires HTTPS, an exact host allowlist, and rejects local names and IP literals. This is not a complete SSRF defense; production still needs DNS/IP validation and network egress restrictions or an outbound proxy.
+- Never send credentials in chat. Credential mappings default to empty and require administrator provisioning.
+- PostgreSQL and Mongo app users are created only when their data volumes are initialized for the first time. Existing volumes need manual provisioning.
+- Integration testing against the exact n8n image is still required. Unit tests do not prove the generated workflow executes correctly.
+- RAG indexing, embeddings, metadata migrations, and a credential mapping admin UI remain future work.
 
-## Safety boundaries
+## Development and tests
 
-- Generated workflows are created inactive; activation is not exposed by this initial API.
-- The compiler permits only HTTPS custom API endpoints whose exact hostname is in `CUSTOM_API_ALLOWED_HOSTS`.
-- Never submit credentials or tokens through chat. Credential mappings are administrator-controlled and default to empty.
-- The hostname allowlist is defense in depth, not a complete SSRF defense. Production requires network egress controls, DNS/IP validation, redirect controls and an outbound proxy.
-- This scaffold needs integration testing against the exact pinned n8n image before production use. Do not treat JSON validation as proof that a workflow executes successfully.
-- PostgreSQL and MongoDB are included as infrastructure foundations; app-specific repositories/migrations and RAG indexing are follow-up work.
-
-## Tests
-
-`npm test` runs isolated Node test-runner tests for requirement validation and endpoint policy. Tests do not require Docker, OpenAI, or a live n8n instance. No runtime integration result is claimed until it is actually run.
+Use Node.js 24+: `npm install`, `npm run typecheck`, `npm test`, `npm run build`. GitHub Actions runs these checks for the development branch.
