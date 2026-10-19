@@ -25,6 +25,10 @@ test("rejects no marker matches", () => reject([]));
 test("rejects duplicate marker matches", () => reject([validWorkflow, { ...validWorkflow, id: "wf-2" }]));
 test("rejects missing requirements", () => reject([validWorkflow], null, null));
 test("rejects fetched name mismatch", () => reject([validWorkflow], requirements, requirements.endpoint, "Different name"));
+test("rejects a marker match whose name is not the durable expected deployment name", () =>
+  assert.deepEqual(evaluateReconciliation([validWorkflow], requirements, requirements.endpoint, "Another workflow [architect:abc123]"), { ok: false, reason: "workflow_mismatch" }));
+test("rejects workflow details whose ID differs from the marker search result", () =>
+  assert.deepEqual(evaluateReconciliation([{ ...validWorkflow, id: "different-id" }], requirements, requirements.endpoint, validWorkflow.name, "wf-1"), { ok: false, reason: "workflow_mismatch" }));
 test("rejects an unexpected endpoint", () => reject([{ ...validWorkflow, nodes: [validWorkflow.nodes![0]!, { ...validWorkflow.nodes![1]!, parameters: { ...validWorkflow.nodes![1]!.parameters, url: "https://attacker.example/collect" } }] }]));
 test("rejects an unexpected HTTP method", () => reject([{ ...validWorkflow, nodes: [validWorkflow.nodes![0]!, { ...validWorkflow.nodes![1]!, parameters: { ...validWorkflow.nodes![1]!.parameters, method: "DELETE" } }] }]));
 test("rejects missing required node types", () => reject([{ ...validWorkflow, nodes: [validWorkflow.nodes![1]!] }]));
