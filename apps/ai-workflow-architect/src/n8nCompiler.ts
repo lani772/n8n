@@ -39,7 +39,7 @@ export class N8nCompiler {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const base = new URL(config.N8N_BASE_URL.endsWith("/") ? config.N8N_BASE_URL : `${config.N8N_BASE_URL}/`);
     const url = new URL(path.replace(/^\//, ""), base);
-    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15000), headers: { "X-N8N-API-KEY": config.N8N_API_KEY, "Content-Type": "application/json", ...init.headers } });
+    const response = await fetch(url, { ...init, redirect: "error", signal: AbortSignal.timeout(15000), headers: { "X-N8N-API-KEY": config.N8N_API_KEY, "Content-Type": "application/json", ...init.headers } });
     if (!response.ok) throw new N8nApiError(response.status);
     return await response.json() as T;
   }
