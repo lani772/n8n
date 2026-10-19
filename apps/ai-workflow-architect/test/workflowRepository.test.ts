@@ -42,7 +42,7 @@ test("workflow repository stores deployment values using SQL parameters", async 
   assert.match(calls[0]!.sql, /\$1, \$2, \$3, \$4, \$5/);
   assert.equal(calls[0]!.values?.[1], "user-a");
   assert.equal(calls[0]!.values?.[5], JSON.stringify(requirements));
-  assert.doesNotMatch(calls[0]!.sql, /ON CONFLICT/);
+  assert.match(calls[0]!.sql, /ON CONFLICT \(workflow_id\) DO NOTHING/);
 });
 
 
@@ -195,4 +195,40 @@ test("non-duplicate database errors are not misclassified as conflicts", async (
     }),
     (error: unknown) => error instanceof Error && error.message === "database unavailable",
   );
+});
+
+
+test("workflow repository rejects a workflow ID already owned by different deployment metadata", async () => {
+  let callCount = 0;
+  const fakeDb = {
+    async query(sql: string) {
+      callCount += 1;
+      if (sql.includes("INSERT INTO architect_workflows")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("SELECT user_id, session_id, draft_hash FROM architect_workflows")) {
+        return {
+          rows: [{
+            user_id: "different-user",
+            session_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            draft_hash: "c".repeat(64),
+          }],
+        };
+      }
+      throw new Error("Unexpected SQL query");
+    },
+  };
+  const repository = new WorkflowRepository(fakeDb as never);
+  await assert.rejects(
+    () => repository.recordCreated({
+      workflowId: "wf-duplicate",
+      userId: "user-a",
+      sessionId: "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+      name: "Example workflow",
+      draftHash: "a".repeat(64),
+      requirements: { endpoint: "https://api.example.com" },
+    }),
+    /Workflow ID already belongs to different deployment metadata/,
+  );
+  assert.equal(callCount, 2, "conflicting metadata must be read and rejected");
 });
