@@ -45,6 +45,30 @@ test("workflow repository stores deployment values using SQL parameters", async 
   assert.doesNotMatch(calls[0]!.sql, /ON CONFLICT/);
 });
 
+
+test("deployment lookup is scoped to both authenticated user and session", async () => {
+  let call: { sql: string; values?: unknown[] } | undefined;
+  const fakeDb = {
+    async query(sql: string, values?: unknown[]) {
+      call = { sql, values };
+      return { rows: [] };
+    },
+  };
+  const repository = new WorkflowRepository(fakeDb as never);
+  const deployment = await repository.getDeployment(
+    "user-a",
+    "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+  );
+
+  assert.equal(deployment, undefined);
+  assert.match(call!.sql, /FROM architect_deployments WHERE user_id = \$1 AND session_id = \$2/);
+  assert.deepEqual(call!.values, [
+    "user-a",
+    "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+  ]);
+  assert.doesNotMatch(call!.sql, /WHERE session_id = \$1 LIMIT 1/);
+});
+
 test("workflow repository creates an application-owned table and index", async () => {
   const statements: string[] = [];
   const fakeDb = {
