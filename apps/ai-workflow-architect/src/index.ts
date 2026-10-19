@@ -66,7 +66,30 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
     const deployment = await workflowRepository.getDeployment(userId, sid.data);
     if (!deployment) { res.status(404).json({ error: "Deployment record not found" }); return; }
     if (deployment.status === "created_inactive" && deployment.workflow_id) {
-      res.json({ status: "created_inactive", workflowId: deployment.workflow_id, reconciled: false });
+      const parsedRequirements = RequirementsSchema.safeParse(deployment.requirements);
+      let expectedEndpoint: string | null = null;
+      try {
+        if (parsedRequirements.success) expectedEndpoint = compiler.validateEndpoint(parsedRequirements.data.endpoint).toString();
+      } catch {
+        expectedEndpoint = null;
+      }
+      const details = await compiler.getWorkflowDetails(deployment.workflow_id);
+      const expectedWorkflowName = `${deployment.name} [architect:${compiler.deploymentMarker(userId, sid.data)}]`;
+      const decision = evaluateReconciliation(
+        [details],
+        parsedRequirements.success ? parsedRequirements.data : null,
+        expectedEndpoint,
+        expectedWorkflowName,
+        deployment.workflow_id,
+      );
+      if (!decision.ok) {
+        res.status(409).json({
+          error: `Stored workflow failed current n8n verification (${decision.reason}); manual review required`,
+          status: deployment.status,
+        });
+        return;
+      }
+      res.json({ status: "created_inactive", workflowId: deployment.workflow_id, reconciled: true, verified: true });
       return;
     }
     const marker = compiler.deploymentMarker(userId, sid.data);
