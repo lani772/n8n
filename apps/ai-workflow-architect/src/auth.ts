@@ -15,3 +15,25 @@ export async function verifyAccessToken(token: string, secret: string | Uint8Arr
   }
   return payload as JWTPayload & { sub: string };
 }
+
+
+import type { NextFunction, Request, Response } from "express";
+
+export function createAuthMiddleware(secret: string | Uint8Array) {
+  return function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+    void (async () => {
+      try {
+        const match = req.header("authorization")?.match(/^Bearer\\s+(.+)$/i);
+        if (!match) {
+          res.status(401).json({ error: "Authentication required" });
+          return;
+        }
+        const payload = await verifyAccessToken(match[1]!, secret);
+        res.locals.userId = payload.sub;
+        next();
+      } catch {
+        res.status(401).json({ error: "Invalid or expired token" });
+      }
+    })();
+  };
+}
