@@ -117,7 +117,26 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
       return;
     }
     const workflow = matches[0]!;
-    const details = await compiler.getWorkflowDetails(workflow.id);
+    let details: Awaited<ReturnType<N8nCompiler["getWorkflowDetails"]>>;
+    try {
+      details = await compiler.getWorkflowDetails(workflow.id);
+    } catch (error) {
+      if (error instanceof N8nApiError && error.status === 404) {
+        await workflowRepository.markDeploymentReconciliationRequired(
+          userId,
+          sid.data,
+          "Workflow disappeared between marker lookup and detail verification; manual review required",
+          workflow.id,
+        );
+        res.status(409).json({
+          error: "A matching workflow disappeared before verification; deployment remains unresolved for manual review",
+          status: "reconciliation_required",
+          verified: false,
+        });
+        return;
+      }
+      throw error;
+    }
     const parsedRequirements = RequirementsSchema.safeParse(deployment.requirements);
     const requirements = parsedRequirements.success ? parsedRequirements.data : null;
     let expectedEndpoint: string | null = null;
