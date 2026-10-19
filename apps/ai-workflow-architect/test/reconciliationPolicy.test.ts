@@ -4,54 +4,33 @@ import { evaluateReconciliation, type ReconciliationWorkflow } from "../src/reco
 import type { Requirements } from "../src/types.js";
 
 const requirements: Requirements = {
-  name: "Order webhook",
-  trigger: "webhook",
-  action: "http_request",
-  endpoint: "https://api.example.com/orders",
-  method: "POST",
-  approved: true,
-  description: "",
+  name: "Order webhook", trigger: "webhook", action: "http_request",
+  endpoint: "https://api.example.com/orders", method: "POST", approved: true, description: "",
 };
 const validWorkflow: ReconciliationWorkflow = {
-  id: "wf-1",
-  name: "Order webhook [architect:abc123]",
+  id: "wf-1", name: "Order webhook [architect:abc123]", active: false,
   nodes: [
-    { name: "Incoming Webhook", type: "n8n-nodes-base.webhook", parameters: { httpMethod: "POST" } },
-    { name: "Send to Approved API", type: "n8n-nodes-base.httpRequest", parameters: { url: "https://api.example.com/orders", method: "POST" } },
+    { name: "Incoming Webhook", type: "n8n-nodes-base.webhook", parameters: { httpMethod: "POST", path: "architect/test" } },
+    { name: "Send to Approved API", type: "n8n-nodes-base.httpRequest", parameters: {
+      url: "https://api.example.com/orders", method: "POST",
+      options: { redirect: { redirect: { followRedirects: false } } },
+    } },
   ],
+  connections: { "Incoming Webhook": { main: [[{ node: "Send to Approved API", type: "main", index: 0 }]] } },
 };
+const reject = (workflows: readonly ReconciliationWorkflow[], req: Requirements | null = requirements, endpoint: string | null = requirements.endpoint, name?: string) =>
+  assert.deepEqual(evaluateReconciliation(workflows, req, endpoint, name), { ok: false, reason: workflows.length > 1 ? "multiple_matches" : workflows.length === 0 ? "no_match" : !req || !endpoint ? "invalid_requirements" : "workflow_mismatch" });
 
-test("reconciliation refuses to infer success when no marker match exists", () => {
-  assert.deepEqual(evaluateReconciliation([], requirements, requirements.endpoint), { ok: false, reason: "no_match" });
-});
-
-test("reconciliation refuses ambiguous duplicate marker matches", () => {
-  assert.deepEqual(evaluateReconciliation([validWorkflow, { ...validWorkflow, id: "wf-2" }], requirements, requirements.endpoint), { ok: false, reason: "multiple_matches" });
-});
-
-test("reconciliation refuses invalid or missing stored requirements", () => {
-  assert.deepEqual(evaluateReconciliation([validWorkflow], null, null), { ok: false, reason: "invalid_requirements" });
-});
-
-test("reconciliation refuses a workflow whose fetched name differs from the marker search result", () => {
-  assert.deepEqual(evaluateReconciliation([validWorkflow], requirements, requirements.endpoint, "Different workflow name"), { ok: false, reason: "workflow_mismatch" });
-});
-
-test("reconciliation refuses an unexpected endpoint", () => {
-  const altered = { ...validWorkflow, nodes: [validWorkflow.nodes![0]!, { ...validWorkflow.nodes![1]!, parameters: { url: "https://attacker.example/collect", method: "POST" } }] };
-  assert.deepEqual(evaluateReconciliation([altered], requirements, requirements.endpoint), { ok: false, reason: "workflow_mismatch" });
-});
-
-test("reconciliation refuses an unexpected HTTP method", () => {
-  const altered = { ...validWorkflow, nodes: [validWorkflow.nodes![0]!, { ...validWorkflow.nodes![1]!, parameters: { url: requirements.endpoint, method: "DELETE" } }] };
-  assert.deepEqual(evaluateReconciliation([altered], requirements, requirements.endpoint), { ok: false, reason: "workflow_mismatch" });
-});
-
-test("reconciliation refuses workflows missing the required node types", () => {
-  const altered = { ...validWorkflow, nodes: [{ name: "HTTP", type: "n8n-nodes-base.httpRequest", parameters: { url: requirements.endpoint, method: "POST" } }] };
-  assert.deepEqual(evaluateReconciliation([altered], requirements, requirements.endpoint), { ok: false, reason: "workflow_mismatch" });
-});
-
-test("reconciliation accepts one workflow matching approved node types, endpoint, and method", () => {
-  assert.deepEqual(evaluateReconciliation([validWorkflow], requirements, requirements.endpoint), { ok: true });
-});
+test("rejects no marker matches", () => reject([]));
+test("rejects duplicate marker matches", () => reject([validWorkflow, { ...validWorkflow, id: "wf-2" }]));
+test("rejects missing requirements", () => reject([validWorkflow], null, null));
+test("rejects fetched name mismatch", () => reject([validWorkflow], requirements, requirements.endpoint, "Different name"));
+test("rejects an unexpected endpoint", () => reject([{ ...validWorkflow, nodes: [validWorkflow.nodes![0]!, { ...validWorkflow.nodes![1]!, parameters: { ...validWorkflow.nodes![1]!.parameters, url: "https://attacker.example/collect" } }] }]));
+test("rejects an unexpected HTTP method", () => reject([{ ...validWorkflow, nodes: [validWorkflow.nodes![0]!, { ...validWorkflow.nodes![1]!, parameters: { ...validWorkflow.nodes![1]!.parameters, method: "DELETE" } }] }]));
+test("rejects missing required node types", () => reject([{ ...validWorkflow, nodes: [validWorkflow.nodes![1]!] }]));
+test("rejects active workflows", () => reject([{ ...validWorkflow, active: true }]));
+test("rejects unknown active state", () => { const { active: _active, ...rest } = validWorkflow; reject([rest]); });
+test("rejects an incorrect webhook-to-action connection", () => reject([{ ...validWorkflow, connections: { "Incoming Webhook": { main: [[{ node: "Unexpected Node", type: "main", index: 0 }]] } } }]));
+test("rejects workflows with extra nodes", () => reject([{ ...validWorkflow, nodes: [...validWorkflow.nodes!, { name: "Unexpected", type: "n8n-nodes-base.set", parameters: {} }] }]));
+test("rejects redirect-following configurations", () => reject([{ ...validWorkflow, nodes: [validWorkflow.nodes![0]!, { ...validWorkflow.nodes![1]!, parameters: { ...validWorkflow.nodes![1]!.parameters, options: { redirect: { redirect: { followRedirects: true } } } } }] }]));
+test("accepts only the expected inactive connected workflow", () => assert.deepEqual(evaluateReconciliation([validWorkflow], requirements, requirements.endpoint), { ok: true }));
