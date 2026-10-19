@@ -65,7 +65,7 @@ test("deploy sends an approved inactive-by-default two-node workflow to the n8n 
   };
   const workflow = await compiler.deploy({ ...base, approved: true }, "marker123");
   assert.equal(workflow.id, "wf-created");
-  assert.match(workflow.name, /\\[architect:marker123\\]$/);
+  assert.match(workflow.name, /\[architect:marker123\]$/);
   assert.equal(receivedBody?.nodes?.length, 2);
   assert.equal(receivedBody?.nodes?.[0]?.type, "n8n-nodes-base.webhook");
   assert.equal(receivedBody?.nodes?.[1]?.type, "n8n-nodes-base.httpRequest");
