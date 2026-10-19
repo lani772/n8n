@@ -14,6 +14,7 @@ import { DeploymentReservationConflict, WorkflowRepository } from "./workflowRep
 import { RequirementsSchema } from "./types.js";
 import { hashDraft, isDraftApprovalValid } from "./draftApproval.js";
 import { evaluateReconciliation } from "./reconciliationPolicy.js";
+import { deploymentNextAction } from "./deploymentStatusPolicy.js";
 
 const app = express();
 const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 2, enableReadyCheck: true });
@@ -144,9 +145,7 @@ app.get("/api/v1/chat/:sessionId/deployment", auth, limiter, async (req, res, ne
     const userId = String(res.locals.userId);
     const deployment = await workflowRepository.getDeployment(userId, sid.data);
     if (!deployment) { res.status(404).json({ error: "Deployment record not found" }); return; }
-    const nextAction = deployment.status === "created_inactive"
-      ? "workflow_created_inactive"
-      : "reconcile_before_retry";
+    const nextAction = deploymentNextAction(deployment.status);
     res.json({
       sessionId: deployment.session_id,
       name: deployment.name,
