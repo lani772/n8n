@@ -46,6 +46,7 @@ jobs:
           table="$(docker compose exec -T postgres psql -U n8n -d architect -Atc "SELECT to_regclass('public.architect_workflows')")"
           test "$table" = "architect_workflows"
           docker compose exec -T postgres psql -U n8n -d architect -v ON_ERROR_STOP=1 -c "INSERT INTO architect_workflows (workflow_id,user_id,session_id,name,draft_hash,status,requirements) VALUES ('ci-user-a','ci-user-a','10000000-0000-4000-8000-000000000001','User A workflow',repeat('a',64),'created_inactive','{}'::jsonb),('ci-user-b','ci-user-b','10000000-0000-4000-8000-000000000002','User B workflow',repeat('b',64),'created_inactive','{}'::jsonb)"
+          docker compose exec -T postgres psql -U n8n -d architect -v ON_ERROR_STOP=1 -c "INSERT INTO architect_deployments (user_id,session_id,draft_hash,status,workflow_id,name,requirements) VALUES ('ci-user-a','10000000-0000-4000-8000-000000000001',repeat('a',64),'created_inactive','ci-user-a','User A deployment','{}'::jsonb),('ci-user-b','10000000-0000-4000-8000-000000000002',repeat('b',64),'created_inactive','ci-user-b','User B deployment','{}'::jsonb)"
           JWT_SECRET="$(grep '^JWT_SECRET=' .env | cut -d= -f2-)" node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { SignJWT } from 'jose';
@@ -56,6 +57,16 @@ jobs:
           const body = await response.json();
           assert.deepEqual(body.workflows.map((workflow) => workflow.user_id), ['ci-user-a'], 'workflow listing must exclude other users');
           assert.deepEqual(body.workflows.map((workflow) => workflow.workflow_id), ['ci-user-a']);
-          console.log('Authenticated tenant isolation passed.');
+
+          const ownDeployment = await fetch('http://localhost:3000/api/v1/chat/10000000-0000-4000-8000-000000000001/deployment', { headers: { authorization: `Bearer ${token}` } });
+          assert.equal(ownDeployment.status, 200, 'owner should be able to read their deployment status');
+          const ownBody = await ownDeployment.json();
+          assert.equal(ownBody.name, 'User A deployment');
+          assert.equal(ownBody.nextAction, 'workflow_created_inactive');
+
+          const otherDeployment = await fetch('http://localhost:3000/api/v1/chat/10000000-0000-4000-8000-000000000002/deployment', { headers: { authorization: `Bearer ${token}` } });
+          assert.equal(otherDeployment.status, 404, 'API must hide another user deployment');
+          assert.deepEqual(await otherDeployment.json(), { error: 'Deployment record not found' });
+          console.log('Authenticated workflow and deployment tenant isolation passed.');
           NODE
-          echo "Integration smoke tests passed: API health, dependency readiness, auth gate, PostgreSQL schema, tenant isolation."
+          echo "Integration smoke tests passed: API health, dependency readiness, auth gate, PostgreSQL schema, workflow and deployment tenant isolation."
