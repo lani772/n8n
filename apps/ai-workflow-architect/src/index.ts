@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import { Redis } from "ioredis";
 import { MongoClient } from "mongodb";
 import pg from "pg";
-import { verifyAccessToken } from "./auth.js";
+import { createAuthMiddleware } from "./auth.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config.js";
@@ -14,7 +14,7 @@ import { DeploymentReservationConflict, WorkflowRepository } from "./workflowRep
 import { RequirementsSchema } from "./types.js";
 import { hashDraft, isDraftApprovalValid } from "./draftApproval.js";
 import { evaluateReconciliation } from "./reconciliationPolicy.js";
-import { deploymentNextAction } from "./deploymentStatusPolicy.js";
+import { createDeploymentStatusRouter } from "./deploymentStatusRouter.js";
 
 const app = express();
 const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 2, enableReadyCheck: true });
@@ -27,16 +27,7 @@ const SessionSchema = z.object({ messages: z.array(z.object({ role: z.enum(["use
 type SessionState = z.infer<typeof SessionSchema>;
 app.disable("x-powered-by"); app.use(helmet()); app.use(express.json({ limit: "64kb" }));
 
-function auth(req: express.Request, res: express.Response, next: express.NextFunction): void {
-  void (async () => {
-    try {
-      const match = req.header("authorization")?.match(/^Bearer\s+(.+)$/i);
-      if (!match) { res.status(401).json({ error: "Authentication required" }); return; }
-      const payload = await verifyAccessToken(match[1]!, config.JWT_SECRET);
-      res.locals.userId = payload.sub; next();
-    } catch { res.status(401).json({ error: "Invalid or expired token" }); }
-  })();
-}
+const auth = createAuthMiddleware(config.JWT_SECRET);
 const limiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false });
 app.get("/health/live", (_req, res) => res.json({ status: "ok" }));
 app.get("/health/ready", async (_req, res) => {
@@ -138,24 +129,8 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
   } catch (error) { next(error); }
 });
 
-app.get("/api/v1/chat/:sessionId/deployment", auth, limiter, async (req, res, next) => {
-  try {
-    const sid = z.string().uuid().safeParse(req.params.sessionId);
-    if (!sid.success) { res.status(400).json({ error: "Invalid session ID" }); return; }
-    const userId = String(res.locals.userId);
-    const deployment = await workflowRepository.getDeployment(userId, sid.data);
-    if (!deployment) { res.status(404).json({ error: "Deployment record not found" }); return; }
-    const nextAction = deploymentNextAction(deployment.status);
-    res.json({
-      sessionId: deployment.session_id,
-      name: deployment.name,
-      status: deployment.status,
-      workflowId: deployment.workflow_id,
-      draftHash: deployment.draft_hash.trim(),
-      nextAction,
-    });
-  } catch (error) { next(error); }
-});
+app.use("/api/v1/chat", createDeploymentStatusRouter(workflowRepository, config.JWT_SECRET));
+
 
 app.get("/api/v1/workflows", auth, limiter, async (_req, res, next) => {
   try {
