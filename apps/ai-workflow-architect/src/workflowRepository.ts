@@ -22,6 +22,13 @@ export interface WorkflowRecord {
 
 export type DeploymentStatus = "pending" | "created_inactive" | "reconciliation_required";
 
+export class DeploymentReservationConflict extends Error {
+  constructor() {
+    super("A deployment reservation already exists for this user and session");
+    this.name = "DeploymentReservationConflict";
+  }
+}
+
 type Queryable = Pick<Pool, "query">;
 
 /**
@@ -76,12 +83,20 @@ export class WorkflowRepository {
     name: string;
     requirements: unknown;
   }): Promise<void> {
-    await this.db.query(
-      `INSERT INTO architect_deployments
-        (user_id, session_id, draft_hash, status, name, requirements)
-       VALUES ($1, $2, $3, 'pending', $4, $5::jsonb)`,
-      [input.userId, input.sessionId, input.draftHash, input.name, JSON.stringify(input.requirements)],
-    );
+    try {
+      await this.db.query(
+        `INSERT INTO architect_deployments
+          (user_id, session_id, draft_hash, status, name, requirements)
+         VALUES ($1, $2, $3, 'pending', $4, $5::jsonb)`,
+        [input.userId, input.sessionId, input.draftHash, input.name, JSON.stringify(input.requirements)],
+      );
+    } catch (error) {
+      // PostgreSQL's primary key is the durable duplicate-deployment guard.
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+        throw new DeploymentReservationConflict();
+      }
+      throw error;
+    }
   }
 
   async getDeployment(userId: string, sessionId: string): Promise<{
