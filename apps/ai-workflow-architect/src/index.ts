@@ -177,7 +177,7 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
       if (error instanceof DeploymentReservationConflict) {
         res.status(409).json({
           error: "A deployment has already been submitted for this interview session; reconcile it instead of retrying",
-          status: "reconciliation_required",
+          status: "deployment_exists",
         });
         return;
       }
