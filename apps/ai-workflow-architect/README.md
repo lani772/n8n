@@ -22,6 +22,7 @@ After the interview, the API returns a `draftHash`. Deploy requires `{"approved"
 - `GET /health/ready`
 - `POST /api/v1/chat/interview`
 - `POST /api/v1/chat/:sessionId/deploy`
+- `GET /api/v1/chat/:sessionId/deployment` — read the authenticated user's durable deployment status and next recovery action without exposing internal error details
 - `POST /api/v1/chat/:sessionId/reconcile` — checks n8n for a workflow carrying the stable deployment marker and repairs local metadata only when exactly one match exists
 - `GET /api/v1/workflows` — list deployments belonging to the authenticated user
 
