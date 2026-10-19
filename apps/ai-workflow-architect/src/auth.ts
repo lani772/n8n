@@ -23,7 +23,7 @@ export function createAuthMiddleware(secret: string | Uint8Array) {
   return function authMiddleware(req: Request, res: Response, next: NextFunction): void {
     void (async () => {
       try {
-        const match = req.header("authorization")?.match(/^Bearer\\s+(.+)$/i);
+        const match = req.header("authorization")?.match(/^Bearer\s+(.+)$/i);
         if (!match) {
           res.status(401).json({ error: "Authentication required" });
           return;
