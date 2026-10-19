@@ -16,8 +16,14 @@ test("endpoint policy rejects URL credentials", () => assert.throws(() => valida
 test("endpoint policy rejects hostnames outside exact allowlist", () => assert.throws(() => validateEndpoint("https://sub.api.example.com", ["api.example.com"])));
 test("endpoint policy rejects local and IP-literal targets", () => {
   assert.throws(() => validateEndpoint("https://localhost", ["localhost"]));
+  assert.throws(() => validateEndpoint("https://printer.local", ["printer.local"]));
+  assert.throws(() => validateEndpoint("https://service.internal", ["service.internal"]));
+  assert.throws(() => validateEndpoint("https://service.localhost", ["service.localhost"]));
   assert.throws(() => validateEndpoint("https://127.0.0.1", ["127.0.0.1"]));
   assert.throws(() => validateEndpoint("https://[::1]", ["::1"]));
+});
+test("endpoint policy does not accept a hostname that merely contains an allowlisted suffix", () => {
+  assert.throws(() => validateEndpoint("https://api.example.com.attacker.test/path", ["api.example.com"]));
 });
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void;
