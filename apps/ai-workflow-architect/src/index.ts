@@ -137,6 +137,27 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
   } catch (error) { next(error); }
 });
 
+app.get("/api/v1/chat/:sessionId/deployment", auth, limiter, async (req, res, next) => {
+  try {
+    const sid = z.string().uuid().safeParse(req.params.sessionId);
+    if (!sid.success) { res.status(400).json({ error: "Invalid session ID" }); return; }
+    const userId = String(res.locals.userId);
+    const deployment = await workflowRepository.getDeployment(userId, sid.data);
+    if (!deployment) { res.status(404).json({ error: "Deployment record not found" }); return; }
+    const nextAction = deployment.status === "created_inactive"
+      ? "workflow_created_inactive"
+      : "reconcile_before_retry";
+    res.json({
+      sessionId: deployment.session_id,
+      name: deployment.name,
+      status: deployment.status,
+      workflowId: deployment.workflow_id,
+      draftHash: deployment.draft_hash.trim(),
+      nextAction,
+    });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/v1/workflows", auth, limiter, async (_req, res, next) => {
   try {
     const records = await workflowRepository.listForUser(String(res.locals.userId));
