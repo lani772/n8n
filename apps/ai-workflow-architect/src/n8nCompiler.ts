@@ -50,7 +50,9 @@ export class N8nCompiler {
   async getWorkflowDetails(workflowId: string): Promise<{
     id: string;
     name: string;
+    active?: boolean;
     nodes?: Array<{ name?: string; type?: string; parameters?: Record<string, unknown> }>;
+    connections?: Record<string, { main?: Array<Array<{ node?: string; type?: string; index?: number }>> }>;
   }> {
     return this.request(`workflows/${encodeURIComponent(workflowId)}`, { method: "GET" });
   }
