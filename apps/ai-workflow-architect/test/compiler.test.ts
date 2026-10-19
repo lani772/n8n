@@ -57,6 +57,15 @@ after(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
+
+test("deployment markers are stable and scoped to both user and session", () => {
+  const first = compiler.deploymentMarker("user-a", "session-a");
+  assert.equal(first, compiler.deploymentMarker("user-a", "session-a"));
+  assert.match(first, /^[a-f0-9]{20}$/);
+  assert.notEqual(first, compiler.deploymentMarker("user-b", "session-a"));
+  assert.notEqual(first, compiler.deploymentMarker("user-a", "session-b"));
+});
+
 test("deploy sends an approved inactive-by-default two-node workflow to the n8n API", async () => {
   let receivedBody: Record<string, any> | undefined;
   handler = (req, res) => {
@@ -142,4 +151,19 @@ test("n8n API errors preserve HTTP status for recovery decisions", async () => {
 test("n8n API client refuses redirects rather than forwarding its API key", async () => {
   handler = (_req, res) => res.writeHead(302, { location: "http://127.0.0.1/redirect-target" }).end();
   await assert.rejects(() => compiler.getWorkflowDetails("wf-redirect"));
+});
+
+test("marker lookup fails closed when the 5,000-workflow scan limit is reached", async () => {
+  let requests = 0;
+  handler = (req, res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    assert.equal(url.searchParams.get("limit"), "250");
+    requests += 1;
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+      data: [],
+      nextCursor: `cursor-${requests + 1}`,
+    }));
+  };
+  await assert.rejects(() => compiler.findByDeploymentMarker("marker123"), /5,000-workflow safety limit/);
+  assert.equal(requests, 20);
 });
