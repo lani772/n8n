@@ -50,7 +50,7 @@ Object.assign(process.env, {
   REDIS_PASSWORD: "test",
   N8N_ENCRYPTION_KEY: "test-encryption-key-that-is-long-enough",
 });
-const { N8nCompiler } = await import("../src/n8nCompiler.js");
+const { N8nApiError, N8nCompiler } = await import("../src/n8nCompiler.js");
 const compiler = new N8nCompiler();
 
 after(async () => {
@@ -122,4 +122,18 @@ test("workflow details preserve active state and connections returned by n8n", a
   };
   handler = (_req, res) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(details));
   assert.deepEqual(await compiler.getWorkflowDetails("wf-detail"), details);
+});
+
+
+test("n8n API errors preserve HTTP status for recovery decisions", async () => {
+  handler = (_req, res) => res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ message: "not found" }));
+  await assert.rejects(
+    () => compiler.getWorkflowDetails("wf-missing"),
+    (error: unknown) => error instanceof N8nApiError && error.status === 404 && /HTTP 404/.test(error.message),
+  );
+  handler = (_req, res) => res.writeHead(503, { "content-type": "application/json" }).end(JSON.stringify({ message: "unavailable" }));
+  await assert.rejects(
+    () => compiler.getWorkflowDetails("wf-unavailable"),
+    (error: unknown) => error instanceof N8nApiError && error.status === 503,
+  );
 });
