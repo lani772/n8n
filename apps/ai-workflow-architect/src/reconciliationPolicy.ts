@@ -17,6 +17,7 @@ export function evaluateReconciliation(
   requirements: Requirements | null,
   expectedEndpoint: string | null,
   expectedWorkflowName?: string,
+  expectedWorkflowId?: string,
 ): ReconciliationDecision {
   if (matches.length === 0) return { ok: false, reason: "no_match" };
   if (matches.length > 1) return { ok: false, reason: "multiple_matches" };
@@ -38,6 +39,7 @@ export function evaluateReconciliation(
   )) ?? false;
   if (
     (expectedWorkflowName !== undefined && workflow.name !== expectedWorkflowName) ||
+    (expectedWorkflowId !== undefined && workflow.id !== expectedWorkflowId) ||
     workflow.active !== false ||
     nodes.length !== 2 || triggers.length !== 1 || actions.length !== 1 ||
     !trigger || !action || !triggerName || !actionName ||
