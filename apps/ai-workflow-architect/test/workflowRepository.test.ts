@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { WorkflowRepository } from "../src/workflowRepository.js";
+import { DeploymentReservationConflict, WorkflowRepository } from "../src/workflowRepository.js";
 
 test("workflow repository scopes list queries to the authenticated user", async () => {
   const calls: Array<{ sql: string; values?: unknown[] }> = [];
@@ -128,4 +128,47 @@ test("deployment schema records durable status and recovery metadata", async () 
   assert.match(statements[2]!, /'pending', 'created_inactive', 'reconciliation_required'/);
   assert.match(statements[2]!, /PRIMARY KEY \(user_id, session_id\)/);
   assert.match(statements[3]!, /architect_deployments_status_updated_idx/);
+});
+
+
+test("duplicate deployment reservation becomes a typed conflict", async () => {
+  let calls = 0;
+  const fakeDb = {
+    async query() {
+      calls += 1;
+      const error = Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" });
+      throw error;
+    },
+  };
+  const repository = new WorkflowRepository(fakeDb as never);
+  await assert.rejects(
+    () => repository.reserveDeployment({
+      userId: "user-a",
+      sessionId: "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+      draftHash: "b".repeat(64),
+      name: "Example workflow",
+      requirements: { endpoint: "https://api.example.com" },
+    }),
+    DeploymentReservationConflict,
+  );
+  assert.equal(calls, 1, "duplicate reservation should stop before any remote deployment call");
+});
+
+test("non-duplicate database errors are not misclassified as conflicts", async () => {
+  const fakeDb = {
+    async query() {
+      throw Object.assign(new Error("database unavailable"), { code: "08006" });
+    },
+  };
+  const repository = new WorkflowRepository(fakeDb as never);
+  await assert.rejects(
+    () => repository.reserveDeployment({
+      userId: "user-a",
+      sessionId: "a3a3d56d-8a76-49c7-87a8-3a60e56f66cc",
+      draftHash: "b".repeat(64),
+      name: "Example workflow",
+      requirements: { endpoint: "https://api.example.com" },
+    }),
+    (error: unknown) => error instanceof Error && error.message === "database unavailable",
+  );
 });
