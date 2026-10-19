@@ -98,6 +98,7 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
       requirements,
       expectedEndpoint,
       expectedWorkflowName,
+      workflow.id,
     );
     if (!decision.ok) {
       await workflowRepository.markDeploymentReconciliationRequired(
