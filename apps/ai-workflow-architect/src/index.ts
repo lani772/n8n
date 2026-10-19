@@ -10,7 +10,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { InterviewService, type ChatMessage } from "./interview.js";
 import { N8nCompiler } from "./n8nCompiler.js";
-import { WorkflowRepository } from "./workflowRepository.js";
+import { DeploymentReservationConflict, WorkflowRepository } from "./workflowRepository.js";
 import { RequirementsSchema } from "./types.js";
 import { hashDraft, isDraftApprovalValid } from "./draftApproval.js";
 import { evaluateReconciliation } from "./reconciliationPolicy.js";
@@ -174,6 +174,13 @@ app.post("/api/v1/chat/:sessionId/deploy", auth, limiter, async (req, res, next)
     } catch (error) {
       // The remote n8n call has not started, so releasing this short-lived lock is safe.
       await redis.del(lockKey);
+      if (error instanceof DeploymentReservationConflict) {
+        res.status(409).json({
+          error: "A deployment has already been submitted for this interview session; reconcile it instead of retrying",
+          status: "reconciliation_required",
+        });
+        return;
+      }
       throw error;
     }
 
