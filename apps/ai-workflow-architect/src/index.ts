@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config.js";
 import { InterviewService, type ChatMessage } from "./interview.js";
-import { N8nCompiler } from "./n8nCompiler.js";
+import { N8nApiError, N8nCompiler } from "./n8nCompiler.js";
 import { DeploymentReservationConflict, WorkflowRepository } from "./workflowRepository.js";
 import { RequirementsSchema } from "./types.js";
 import { hashDraft, isDraftApprovalValid } from "./draftApproval.js";
@@ -73,7 +73,20 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
       } catch {
         expectedEndpoint = null;
       }
-      const details = await compiler.getWorkflowDetails(deployment.workflow_id);
+      let details: Awaited<ReturnType<N8nCompiler["getWorkflowDetails"]>>;
+      try {
+        details = await compiler.getWorkflowDetails(deployment.workflow_id);
+      } catch (error) {
+        if (error instanceof N8nApiError && error.status === 404) {
+          res.status(409).json({
+            error: "The durable record references a workflow that n8n cannot find; status was not changed and manual review is required",
+            status: deployment.status,
+            verified: false,
+          });
+          return;
+        }
+        throw error;
+      }
       const expectedWorkflowName = `${deployment.name} [architect:${compiler.deploymentMarker(userId, sid.data)}]`;
       const decision = evaluateReconciliation(
         [details],
