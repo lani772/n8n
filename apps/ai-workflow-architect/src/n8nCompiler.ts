@@ -3,6 +3,14 @@ import { config } from "./config.js";
 import { validateEndpoint } from "./endpointPolicy.js";
 import { RequirementsSchema, type N8nWorkflowPayload, type Requirements } from "./types.js";
 export interface CredentialMapping { id: string; name: string; type: "httpHeaderAuth"; }
+
+/** A non-2xx response from the configured n8n API, with status kept for safe recovery decisions. */
+export class N8nApiError extends Error {
+  constructor(readonly status: number) {
+    super(`n8n API returned HTTP ${status}`);
+    this.name = "N8nApiError";
+  }
+}
 export class N8nCompiler {
   constructor(private readonly credentials: ReadonlyMap<string, CredentialMapping> = new Map()) {}
   validateEndpoint(raw: string): URL { return validateEndpoint(raw, config.customApiAllowedHosts); }
@@ -32,7 +40,7 @@ export class N8nCompiler {
     const base = new URL(config.N8N_BASE_URL.endsWith("/") ? config.N8N_BASE_URL : `${config.N8N_BASE_URL}/`);
     const url = new URL(path.replace(/^\//, ""), base);
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15000), headers: { "X-N8N-API-KEY": config.N8N_API_KEY, "Content-Type": "application/json", ...init.headers } });
-    if (!response.ok) throw new Error(`n8n API returned HTTP ${response.status}`);
+    if (!response.ok) throw new N8nApiError(response.status);
     return await response.json() as T;
   }
   deploymentMarker(userId: string, sessionId: string): string {
