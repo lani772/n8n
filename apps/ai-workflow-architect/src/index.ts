@@ -90,11 +90,14 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
     } catch {
       expectedEndpoint = null;
     }
+    // Verify the marker search result against the durable deployment name as well
+    // as the fetched details, so a matching suffix alone cannot authorize adoption.
+    const expectedWorkflowName = `${deployment.name} [architect:${marker}]`;
     const decision = evaluateReconciliation(
       [details],
       requirements,
       expectedEndpoint,
-      workflow.name,
+      expectedWorkflowName,
     );
     if (!decision.ok) {
       await workflowRepository.markDeploymentReconciliationRequired(
