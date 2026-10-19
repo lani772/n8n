@@ -137,3 +137,9 @@ test("n8n API errors preserve HTTP status for recovery decisions", async () => {
     (error: unknown) => error instanceof N8nApiError && error.status === 503,
   );
 });
+
+
+test("n8n API client refuses redirects rather than forwarding its API key", async () => {
+  handler = (_req, res) => res.writeHead(302, { location: "http://127.0.0.1/redirect-target" }).end();
+  await assert.rejects(() => compiler.getWorkflowDetails("wf-redirect"));
+});
