@@ -45,6 +45,8 @@ jobs:
           test "$status" = "401"
           table="$(docker compose exec -T postgres psql -U n8n -d architect -Atc "SELECT to_regclass('public.architect_workflows')")"
           test "$table" = "architect_workflows"
+          deployment_table="$(docker compose exec -T postgres psql -U n8n -d architect -Atc "SELECT to_regclass('public.architect_deployments')")"
+          test "$deployment_table" = "architect_deployments"
           docker compose exec -T postgres psql -U n8n -d architect -v ON_ERROR_STOP=1 -c "INSERT INTO architect_workflows (workflow_id,user_id,session_id,name,draft_hash,status,requirements) VALUES ('ci-user-a','ci-user-a','10000000-0000-4000-8000-000000000001','User A workflow',repeat('a',64),'created_inactive','{}'::jsonb),('ci-user-b','ci-user-b','10000000-0000-4000-8000-000000000002','User B workflow',repeat('b',64),'created_inactive','{}'::jsonb)"
           docker compose exec -T postgres psql -U n8n -d architect -v ON_ERROR_STOP=1 -c "INSERT INTO architect_deployments (user_id,session_id,draft_hash,status,workflow_id,name,requirements) VALUES ('ci-user-a','10000000-0000-4000-8000-000000000001',repeat('a',64),'created_inactive','ci-user-a','User A deployment','{}'::jsonb),('ci-user-b','10000000-0000-4000-8000-000000000002',repeat('b',64),'created_inactive','ci-user-b','User B deployment','{}'::jsonb)"
           JWT_SECRET="$(grep '^JWT_SECRET=' .env | cut -d= -f2-)" node --input-type=module <<'NODE'
