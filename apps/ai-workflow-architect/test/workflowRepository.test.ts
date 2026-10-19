@@ -24,7 +24,10 @@ test("workflow repository stores deployment values using SQL parameters", async 
   const fakeDb = {
     async query(sql: string, values?: unknown[]) {
       calls.push({ sql, values });
-      return { rows: [] };
+      if (sql.includes("INSERT INTO architect_workflows")) {
+        return { rows: [], rowCount: 1 };
+      }
+      throw new Error("Existing metadata lookup should not run after a successful insert");
     },
   };
   const repository = new WorkflowRepository(fakeDb as never);
