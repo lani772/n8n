@@ -36,7 +36,7 @@ After the interview, the API returns a `draftHash`. Deploy requires `{"approved"
 ## Safety and limitations
 
 - `N8N_BASE_URL` must be an HTTP(S) URL without embedded credentials, query parameters, or a fragment. HTTP remains allowed for private container-network communication with n8n; public deployments should use TLS.
-- Workflow endpoint policy requires HTTPS, an exact host allowlist, and rejects local names and IP literals. This is not a complete SSRF defense; production still needs DNS/IP validation and network egress restrictions or an outbound proxy.
+- Workflow endpoint policy requires HTTPS, an exact host allowlist, and rejects local names and IP literals. Before creating a workflow, the service resolves the approved hostname and rejects private, local, reserved, invalid, empty, or mixed public/private DNS answers. This is a preflight check, not a complete SSRF defense: DNS can change after validation and n8n resolves the hostname when the workflow executes. Production must still enforce outbound network egress restrictions or use an outbound proxy that validates and pins destinations.
 - Never send credentials in chat. Credential mappings default to empty and require administrator provisioning.
 - PostgreSQL and Mongo app users are created only when their data volumes are initialized for the first time. Existing volumes need manual provisioning.
 - The CI Compose smoke test starts the pinned n8n image and verifies service readiness, schema creation, and tenant isolation. The workflow create/reconcile path against the real n8n API still needs a configured API key and dedicated integration coverage; unit tests do not prove the generated workflow executes correctly.
