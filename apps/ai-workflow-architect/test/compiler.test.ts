@@ -62,7 +62,8 @@ Object.assign(process.env, {
   N8N_ENCRYPTION_KEY: "test-encryption-key-that-is-long-enough",
 });
 const { N8nApiError, N8nCompiler } = await import("../src/n8nCompiler.js");
-const compiler = new N8nCompiler();
+const publicTestResolver = async (_hostname: string) => [{ address: "93.184.216.34", family: 4 }];
+const compiler = new N8nCompiler(new Map(), publicTestResolver);
 
 after(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -101,6 +102,29 @@ test("deploy sends an approved inactive-by-default two-node workflow to the n8n 
   assert.deepEqual(receivedBody?.connections?.["Incoming Webhook"]?.main?.[0]?.[0], {
     node: "Send to Approved API", type: "main", index: 0,
   });
+});
+
+
+test("deploy rejects private DNS answers before making an n8n API request", async () => {
+  let apiCalls = 0;
+  handler = (_req, res) => { apiCalls += 1; res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "unexpected", name: "unexpected" })); };
+  const privateResolver = new N8nCompiler(new Map(), async () => [{ address: "127.0.0.1", family: 4 }]);
+  await assert.rejects(
+    () => privateResolver.deploy({ ...base, approved: true }, "marker123"),
+    /private, local, reserved, or invalid address/,
+  );
+  assert.equal(apiCalls, 0, "unsafe endpoint must be rejected before contacting n8n");
+});
+
+test("deploy resolves the allowlisted hostname through the injected resolver", async () => {
+  let resolvedHostname = "";
+  handler = (_req, res) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "wf-public", name: "Order webhook [architect:marker123]" }));
+  const deterministicResolver = new N8nCompiler(new Map(), async (hostname) => {
+    resolvedHostname = hostname;
+    return [{ address: "93.184.216.34", family: 4 }];
+  });
+  await deterministicResolver.deploy({ ...base, approved: true }, "marker123");
+  assert.equal(resolvedHostname, "api.example.com");
 });
 
 test("deploy refuses an unapproved draft before calling the n8n API", async () => {
