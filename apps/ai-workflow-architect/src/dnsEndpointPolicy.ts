@@ -22,6 +22,7 @@ const blockedRanges: Array<[string, number, "ipv4" | "ipv6"]> = [
   ["240.0.0.0", 4, "ipv4"],
   ["::", 128, "ipv6"],
   ["::1", 128, "ipv6"],
+  ["::ffff:0:0", 96, "ipv6"],
   ["fc00::", 7, "ipv6"],
   ["fe80::", 10, "ipv6"],
   ["ff00::", 8, "ipv6"],
