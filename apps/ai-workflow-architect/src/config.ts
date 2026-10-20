@@ -1,10 +1,18 @@
 import "dotenv/config";
 import { z } from "zod";
+import { validateN8nBaseUrl } from "./n8nBaseUrlPolicy.js";
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   OPENAI_API_KEY: z.string().min(1), OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
-  JWT_SECRET: z.string().min(32), N8N_BASE_URL: z.string().url(), N8N_API_KEY: z.string().min(1),
+  JWT_SECRET: z.string().min(32), N8N_BASE_URL: z.string().url().refine((value) => {
+    try {
+      validateN8nBaseUrl(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, "N8N_BASE_URL must use HTTP(S) and contain no embedded credentials, query string, or fragment"), N8N_API_KEY: z.string().min(1),
   CUSTOM_API_ALLOWED_HOSTS: z.string().default(""),
   INTERVIEW_TTL_SECONDS: z.coerce.number().int().min(60).default(3600),
   MAX_CHAT_MESSAGE_LENGTH: z.coerce.number().int().min(1).max(20000).default(8000),
