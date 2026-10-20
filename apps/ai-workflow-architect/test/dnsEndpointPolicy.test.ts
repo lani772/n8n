@@ -19,7 +19,7 @@ test("DNS policy rejects private and loopback IPv4 answers", async () => {
 });
 
 test("DNS policy rejects local and reserved IPv6 answers", async () => {
-  for (const address of ["::1", "fc00::1", "fe80::1", "2001:db8::1", "ff02::1"]) {
+  for (const address of ["::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "fc00::1", "fe80::1", "2001:db8::1", "ff02::1"]) {
     await assert.rejects(
       () => validatePublicEndpointResolution("api.example.com", async () => [{ address, family: 6 }]),
       /private, local, reserved, or invalid/,
