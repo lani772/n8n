@@ -4,12 +4,23 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { once } from "node:events";
 import { RequirementsSchema } from "../src/types.js";
 import { validateEndpoint } from "../src/endpointPolicy.js";
+import { validateN8nBaseUrl } from "../src/n8nBaseUrlPolicy.js";
 
 const base = { name: "Order webhook", trigger: "webhook", action: "http_request", endpoint: "https://api.example.com/orders", method: "POST", approved: false };
 test("requirements schema accepts supported webhook-to-HTTP request", () => assert.equal(RequirementsSchema.parse(base).trigger, "webhook"));
 test("requirements schema rejects unsupported trigger", () => assert.throws(() => RequirementsSchema.parse({ ...base, trigger: "schedule" })));
 test("requirements schema rejects malformed URL", () => assert.throws(() => RequirementsSchema.parse({ ...base, endpoint: "not-a-url" })));
 test("requirements schema rejects invalid method", () => assert.throws(() => RequirementsSchema.parse({ ...base, method: "TRACE" })));
+test("n8n base URL accepts local HTTP and HTTPS service URLs", () => {
+  assert.equal(validateN8nBaseUrl("http://n8n:5678/api/v1/").hostname, "n8n");
+  assert.equal(validateN8nBaseUrl("https://n8n.example.com/api/v1/").protocol, "https:");
+});
+test("n8n base URL rejects embedded credentials, query strings, and fragments", () => {
+  assert.throws(() => validateN8nBaseUrl("https://user:secret@n8n.example.com/api/v1/"));
+  assert.throws(() => validateN8nBaseUrl("https://n8n.example.com/api/v1/?api_key=secret"));
+  assert.throws(() => validateN8nBaseUrl("https://n8n.example.com/api/v1/#fragment"));
+  assert.throws(() => validateN8nBaseUrl("file:///tmp/n8n"));
+});
 test("endpoint policy accepts allowlisted HTTPS hostname", () => assert.equal(validateEndpoint("https://api.example.com/orders", ["api.example.com"]).hostname, "api.example.com"));
 test("endpoint policy rejects HTTP", () => assert.throws(() => validateEndpoint("http://api.example.com", ["api.example.com"])));
 test("endpoint policy rejects URL credentials", () => assert.throws(() => validateEndpoint("https://user:pass@api.example.com", ["api.example.com"])));
