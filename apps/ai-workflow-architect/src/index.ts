@@ -108,11 +108,21 @@ app.post("/api/v1/chat/:sessionId/reconcile", auth, limiter, async (req, res, ne
     const marker = compiler.deploymentMarker(userId, sid.data);
     const matches = await compiler.findByDeploymentMarker(marker);
     if (matches.length !== 1) {
+      const reason = matches.length === 0
+        ? "No matching workflow found in the scanned n8n workflows; deployment remains unresolved"
+        : "Multiple matching workflows found; manual review required";
+      // A deployment without one unambiguous marker match must remain durably recoverable.
+      // Do not create another workflow automatically: n8n may have accepted the original request.
+      await workflowRepository.markDeploymentReconciliationRequired(
+        userId,
+        sid.data,
+        reason,
+      );
       res.status(409).json({
-        error: matches.length === 0
-          ? "No matching workflow found in the scanned n8n workflows; deployment remains unresolved"
-          : "Multiple matching workflows found; manual review required",
-        status: deployment.status,
+        error: reason,
+        status: "reconciliation_required",
+        matches: matches.length,
+        verified: false,
       });
       return;
     }
