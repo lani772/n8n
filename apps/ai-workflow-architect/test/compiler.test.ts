@@ -159,9 +159,26 @@ test("n8n API errors preserve HTTP status for recovery decisions", async () => {
 });
 
 
-test("n8n API client refuses redirects rather than forwarding its API key", async () => {
-  handler = (_req, res) => res.writeHead(302, { location: "http://127.0.0.1/redirect-target" }).end();
-  await assert.rejects(() => compiler.getWorkflowDetails("wf-redirect"));
+test("n8n API client refuses redirects without contacting the redirect target", async () => {
+  let redirectTargetHits = 0;
+  const redirectTarget = createServer((_req, res) => {
+    redirectTargetHits += 1;
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "unexpected" }));
+  });
+  redirectTarget.listen(0, "127.0.0.1");
+  await once(redirectTarget, "listening");
+  const targetAddress = redirectTarget.address();
+  if (!targetAddress || typeof targetAddress === "string") throw new Error("Redirect target server did not bind to a TCP port");
+
+  try {
+    handler = (_req, res) => res.writeHead(302, {
+      location: `http://127.0.0.1:${targetAddress.port}/redirect-target`,
+    }).end();
+    await assert.rejects(() => compiler.getWorkflowDetails("wf-redirect"));
+    assert.equal(redirectTargetHits, 0, "redirect destination must never receive the request");
+  } finally {
+    await new Promise<void>((resolve, reject) => redirectTarget.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 test("marker lookup fails closed when the 5,000-workflow scan limit is reached", async () => {
