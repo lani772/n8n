@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { validatePublicEndpointResolution } from "./dnsEndpointPolicy.js";
+import { validatePublicEndpointResolution, type AddressResolver } from "./dnsEndpointPolicy.js";
 import { config } from "./config.js";
 import { validateEndpoint } from "./endpointPolicy.js";
 import { RequirementsSchema, type N8nWorkflowPayload, type Requirements } from "./types.js";
@@ -13,7 +13,10 @@ export class N8nApiError extends Error {
   }
 }
 export class N8nCompiler {
-  constructor(private readonly credentials: ReadonlyMap<string, CredentialMapping> = new Map()) {}
+  constructor(
+    private readonly credentials: ReadonlyMap<string, CredentialMapping> = new Map(),
+    private readonly endpointResolver?: AddressResolver,
+  ) {}
   validateEndpoint(raw: string): URL { return validateEndpoint(raw, config.customApiAllowedHosts); }
   compile(input: unknown): N8nWorkflowPayload {
     const req = RequirementsSchema.parse(input);
@@ -52,7 +55,7 @@ export class N8nCompiler {
     const req: Requirements = RequirementsSchema.parse(input);
     if (!req.approved) throw new Error("Explicit approval is required before deployment");
     const endpoint = this.validateEndpoint(req.endpoint);
-    await validatePublicEndpointResolution(endpoint.hostname);
+    await validatePublicEndpointResolution(endpoint.hostname, this.endpointResolver);
     const workflow = this.compile(req);
     if (marker) workflow.name = `${req.name} [architect:${marker}]`;
     return this.request("workflows", { method: "POST", body: JSON.stringify(workflow) });
